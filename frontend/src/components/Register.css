@@ -1,0 +1,19 @@
+.register-shell { min-height: 760px; }
+.register-panel { padding-block: 40px; }
+.register-heading { margin-bottom: 26px; }
+.register-form { gap: 15px; }
+.register-form .form-control { height: 48px; }
+.register-form .login-submit { margin-top: 6px; }
+
+@media (max-width: 820px) {
+  .register-shell { min-height: auto; }
+  .register-panel { min-height: 760px; padding-block: 36px; }
+  .register-panel .login-panel__mobile-brand { margin-bottom: 34px; }
+}
+
+@media (max-width: 520px) {
+  .register-panel { min-height: 100vh; min-height: 100svh; padding-block: 26px 34px; }
+  .register-panel .login-panel__mobile-brand { margin-bottom: 38px; }
+  .register-heading { margin-bottom: 25px; }
+  .register-form { gap: 14px; }
+}

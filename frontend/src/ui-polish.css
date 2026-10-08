@@ -1,0 +1,333 @@
+/* Shared UI scale: loaded last to normalize all existing screens without changing behavior. */
+:root {
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --content-max: 1440px;
+  --body-size: 15px;
+  --small-size: 13px;
+  --control-size: 14px;
+  --section-title-size: 20px;
+  --page-title-size: 32px;
+}
+
+body { color: #172033; font-size: var(--body-size); }
+.app-main { min-width: 0; }
+.main-content { width: min(100%, var(--content-max)); padding: 48px clamp(32px, 4vw, 64px) 40px; }
+.header { min-height: 80px; padding: 14px clamp(32px, 4vw, 64px); }
+.header h1 { font-size: 21px; }
+.header__eyebrow { margin-bottom: 3px; font-size: 11px; }
+.search-box { width: min(30vw, 360px); height: 44px; }
+.search-box input { font-size: 14px; }
+.search-box kbd { font-size: 11px; }
+.profile-copy strong { font-size: 13px; }
+.profile-copy small { font-size: 11px; }
+.nav-label { font-size: 11px; }
+.nav-item { min-height: 44px; font-size: 14px; }
+
+/* Overview */
+.welcome { min-height: 248px; padding: 40px 48px; }
+.welcome__badge { margin-bottom: 16px; font-size: 12px; }
+.welcome h2 { margin-bottom: 12px; font-size: clamp(30px, 2.5vw, 38px); }
+.welcome p { font-size: 15px; line-height: 1.65; }
+.features { margin-top: 32px; }
+.section-heading { margin-bottom: 16px; }
+.section-heading__eyebrow { margin-bottom: 4px !important; font-size: 11px !important; }
+.section-heading h2 { font-size: var(--section-title-size); }
+.section-heading > p { font-size: 13px; }
+.feature-grid { gap: 16px; }
+.feature-card { display: flex; min-height: 236px; height: 100%; flex-direction: column; padding: 24px; }
+.feature-card__icon { margin-bottom: 16px; }
+.feature-card h3 { margin-bottom: 8px; font-size: 17px; }
+.feature-card > p { min-height: 0; margin-bottom: 20px; font-size: 14px; line-height: 1.6; }
+.feature-card__link { margin-top: auto; font-size: 14px; }
+
+/* Authentication */
+.login-page { padding: 24px; }
+.login-shell { width: min(1120px, 100%); min-height: min(690px, calc(100svh - 48px)); }
+.login-intro { padding: 40px 48px 32px; }
+.login-intro__content { margin-top: 64px; }
+.login-intro__eyebrow { font-size: 12px; }
+.login-intro h2 { font-size: clamp(36px, 3vw, 44px); }
+.login-intro__content p { font-size: 15px; line-height: 1.7; }
+.login-intro__footer { font-size: 12px; }
+.login-panel { padding: 48px clamp(48px, 5vw, 72px); }
+.login-form-wrap { max-width: 440px; }
+.login-heading { margin-bottom: 32px; }
+.login-heading h1 { font-size: 32px; }
+.login-heading p { font-size: 15px; }
+.login-form { gap: 20px; }
+.form-field { gap: 8px; }
+.form-field label, .form-field__label-row label { font-size: 14px; }
+.form-field__label-row a, .signup-prompt a { font-size: 13px; }
+.form-control { height: 52px; }
+.form-control input { font-size: 15px; }
+.form-field__error { font-size: 13px; }
+.remember-option { font-size: 13px; }
+.login-submit { height: 52px; font-size: 15px; }
+.login-notice { padding: 12px 16px; font-size: 13px; }
+.signup-prompt { margin-top: 24px; font-size: 13px; }
+.register-shell { min-height: min(790px, calc(100svh - 48px)); }
+.register-panel { padding-block: 32px; }
+.register-form { gap: 16px; }
+.register-form .form-control { height: 50px; }
+
+/* Shared page headings */
+.documents-page, .summarize-page, .chat-page, .history-page { padding-top: 40px; }
+.documents-hero h2, .summarize-hero h2, .chat-page__heading h1, .history-hero h1 { font-size: var(--page-title-size); }
+.documents-hero > div > p:last-child, .summarize-hero > span, .chat-page__heading > span, .history-hero > span { font-size: 15px; }
+.documents-eyebrow, .summarize-hero > p, .chat-page__heading > p, .history-hero > p { font-size: 11px; }
+
+/* Documents */
+.documents-hero { align-items: center; margin-bottom: 24px; }
+.documents-upload { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+.documents-toolbar { gap: 16px; padding: 12px; }
+.documents-search { width: min(480px, 50%); height: 44px; }
+.documents-search input { font-size: 14px; }
+.document-filters { gap: 8px; }
+.document-filters button { min-width: 64px; height: 40px; padding-inline: 12px; font-size: 13px; }
+.documents-list { margin-top: 24px; }
+.documents-list__heading { margin-bottom: 16px; }
+.documents-list__heading h2 { font-size: var(--section-title-size); }
+.documents-list__heading span { padding: 6px 10px; font-size: 12px; }
+.documents-grid { gap: 16px; }
+.document-card { min-height: 212px; height: 100%; gap: 16px; padding: 20px; }
+.document-card__file { width: 60px; height: 68px; flex-basis: 60px; }
+.document-card__file span { font-size: 11px; }
+.document-card__heading { gap: 12px; }
+.document-card h3 { margin-bottom: 8px; font-size: 16px; }
+.document-card__heading p { font-size: 13px; line-height: 1.5; }
+.document-status { gap: 6px; padding: 6px 9px; font-size: 12px; }
+.document-card__actions { gap: 4px; margin-top: 20px; padding-top: 16px; }
+.document-card__actions button { min-height: 36px; padding-inline: 10px; font-size: 13px; }
+.documents-empty { min-height: 280px; }
+.documents-empty h3 { font-size: 18px; }
+.documents-empty p { font-size: 14px; }
+.documents-empty__reset { min-height: 44px; font-size: 14px; }
+
+/* Summarize */
+.summarize-hero { margin-bottom: 24px; }
+.summarize-workspace { grid-template-columns: minmax(340px, 2fr) minmax(480px, 3fr); gap: 16px; }
+.summary-settings { padding: 24px; }
+.summary-control-group + .summary-control-group { margin-top: 24px; padding-top: 24px; }
+.summary-control-heading { gap: 12px; margin-bottom: 16px; }
+.summary-control-heading > span { width: 30px; height: 30px; font-size: 12px; }
+.summary-control-heading h3 { font-size: 16px; }
+.summary-control-heading p { font-size: 13px; }
+.summary-select { height: 48px; }
+.summary-select select { font-size: 14px; }
+.selected-document { padding: 12px; }
+.selected-document strong { font-size: 13px; }
+.selected-document span { font-size: 12px; }
+.selected-document__ready { font-size: 12px !important; }
+.summary-length-options { gap: 8px; }
+.summary-length-options label { min-height: 68px; padding: 12px; }
+.summary-length__copy strong { font-size: 14px; }
+.summary-length__copy small { font-size: 13px; }
+.summary-length__copy em { font-size: 11px; }
+.summary-generate { height: 48px; margin-top: 24px; font-size: 14px; }
+.summary-settings__note { margin-top: 12px; font-size: 12px; }
+.summary-output { min-height: 520px; }
+.summary-placeholder { min-height: 518px; padding: 32px; }
+.summary-placeholder h3 { font-size: 18px; }
+.summary-placeholder p { font-size: 14px; }
+.summary-result { padding: 24px; }
+.summary-result__notice { padding: 12px; font-size: 13px; }
+.summary-result__header { margin-block: 20px 16px; padding-bottom: 16px; }
+.summary-result__header p { font-size: 11px; }
+.summary-result__header h3 { font-size: 18px; }
+.summary-result__header > span { font-size: 12px; }
+.summary-result__content h4 { font-size: 15px; }
+.summary-result__content p, .summary-result__content li { font-size: 14px; }
+.summary-result__actions button { height: 40px; padding-inline: 14px; font-size: 13px; }
+
+/* Chat */
+.chat-page { padding-top: 32px; }
+.chat-page__heading { margin-bottom: 24px; }
+.chat-workspace { grid-template-columns: minmax(280px, 0.72fr) minmax(540px, 1.65fr); gap: 16px; }
+.chat-documents { padding: 20px; }
+.chat-documents__heading { gap: 12px; padding-bottom: 16px; }
+.chat-documents__heading h2 { font-size: 16px; }
+.chat-documents__heading p { font-size: 13px; }
+.chat-document-select > span { font-size: 13px; }
+.chat-document-select > div { height: 44px; }
+.chat-document-select select { font-size: 13px; }
+.chat-selected-document { padding: 16px; }
+.chat-selected-document__file span { font-size: 10px; }
+.chat-selected-document h3 { font-size: 15px; }
+.chat-selected-document dt, .chat-selected-document dd { font-size: 12px; }
+.chat-selected-document__status { padding: 6px 9px; font-size: 12px; }
+.chat-documents__note { padding: 12px; }
+.chat-documents__note p { font-size: 12px; }
+.chat-conversation { height: 680px; }
+.chat-conversation__topbar { min-height: 72px; padding: 12px 16px; }
+.chat-conversation__topbar strong { font-size: 14px; }
+.chat-conversation__topbar div > span { font-size: 12px; }
+.chat-conversation__mode { padding: 6px 9px; font-size: 11px; }
+.chat-welcome { padding: 32px 24px; }
+.chat-welcome h2 { font-size: 20px; }
+.chat-welcome > p { font-size: 14px; }
+.chat-suggestions { gap: 8px; margin-top: 24px; }
+.chat-suggestions button { min-height: 46px; padding: 10px 12px; font-size: 13px; }
+.chat-messages { gap: 24px; padding: 24px; }
+.chat-message__avatar { width: 36px; height: 36px; flex-basis: 36px; font-size: 11px; }
+.chat-message__body { max-width: 84%; }
+.chat-message__label strong { font-size: 12px; }
+.chat-message__label span { font-size: 11px; }
+.chat-message__bubble { padding: 12px 16px; font-size: 14px; line-height: 1.65; }
+.chat-source { padding: 12px; }
+.chat-source__title strong { font-size: 12px; }
+.chat-source__title span { font-size: 10px; }
+.chat-source > p { font-size: 12px; }
+.chat-source small { font-size: 11px; }
+.chat-copy { min-height: 32px; margin-top: 8px; padding-inline: 8px; font-size: 12px; }
+.chat-composer-wrap { padding: 12px 16px; }
+.chat-composer { padding: 8px 8px 8px 16px; }
+.chat-composer textarea { min-height: 38px; font-size: 14px; }
+.chat-composer button { height: 40px; padding-inline: 14px; font-size: 13px; }
+.chat-composer-wrap > p { margin-top: 8px; font-size: 11px; }
+
+/* History */
+.history-hero { margin-bottom: 24px; }
+.history-toolbar { gap: 16px; padding: 12px; }
+.history-search { width: min(480px, 48%); height: 44px; }
+.history-search input { font-size: 14px; }
+.history-filters { gap: 6px; }
+.history-filters button { min-width: 68px; height: 40px; padding-inline: 12px; font-size: 13px; }
+.history-list { margin-top: 24px; }
+.history-list__heading { margin-bottom: 16px; }
+.history-list__heading h2 { font-size: var(--section-title-size); }
+.history-list__heading span { padding: 6px 10px; font-size: 12px; }
+.history-list__items { gap: 12px; }
+.history-item { min-height: 124px; gap: 16px; padding: 20px; }
+.history-item__icon { width: 48px; height: 48px; }
+.history-item__heading h3 { font-size: 16px; }
+.history-item__heading time { font-size: 12px; }
+.history-item__document { margin-top: 8px; }
+.history-item__document span { font-size: 12px; }
+.history-item__document i { padding: 3px 6px; font-size: 10px; }
+.history-item__content > p { margin-top: 10px; font-size: 13px; }
+.history-item__actions button { height: 38px; padding-inline: 12px; font-size: 13px; }
+.history-empty h3 { font-size: 18px; }
+.history-empty p { font-size: 14px; }
+.history-empty__actions button, .history-empty__actions a { min-height: 44px; font-size: 14px; }
+
+/* History dialogs */
+.history-dialog { width: min(100%, 680px); }
+.history-dialog__header { padding: 20px 24px 16px; }
+.history-dialog__header p { font-size: 11px; }
+.history-dialog__header h2 { font-size: 18px; }
+.history-dialog__header span { font-size: 12px; }
+.history-dialog__notice { margin-inline: 24px; padding: 10px 12px; font-size: 12px; }
+.history-dialog__messages { padding: 24px; }
+.history-dialog__message > span { width: 34px; height: 34px; flex-basis: 34px; font-size: 10px; }
+.history-dialog__message strong { font-size: 12px; }
+.history-dialog__message p { padding: 12px 14px; font-size: 14px; }
+.history-dialog footer { padding: 12px 24px; }
+.history-dialog footer button { height: 40px; padding-inline: 16px; font-size: 13px; }
+.history-dialog--confirm { width: min(100%, 430px); padding: 32px; }
+.history-dialog--confirm h2 { font-size: 20px; }
+.history-dialog--confirm > p { font-size: 14px; }
+.history-confirm__actions button { height: 42px; font-size: 13px; }
+
+@media (max-width: 1180px) {
+  .main-content { padding-inline: 32px; }
+  .header { padding-inline: 32px; }
+  .chat-workspace { grid-template-columns: minmax(250px, 0.65fr) minmax(470px, 1.35fr); }
+  .document-card__actions button { padding-inline: 8px; font-size: 12px; }
+}
+
+@media (max-width: 960px) {
+  .main-content { padding: 40px 24px 32px; }
+  .header { padding-inline: 24px; }
+  .search-box { width: min(36vw, 320px); }
+  .summarize-workspace { grid-template-columns: 1fr; }
+  .summary-output { min-height: 460px; }
+  .summary-placeholder { min-height: 458px; }
+  .chat-workspace { grid-template-columns: 1fr; }
+  .chat-documents { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chat-documents__heading { grid-column: 1 / -1; }
+  .chat-document-select, .chat-selected-document, .chat-documents__note { margin-top: 0; }
+}
+
+@media (max-width: 768px) {
+  :root { --page-title-size: 30px; }
+  .header { min-height: 72px; }
+  .main-content { padding: 32px 20px; }
+  .documents-page, .summarize-page, .chat-page, .history-page { padding-top: 32px; }
+  .welcome { padding: 32px; }
+  .section-heading > p { display: none; }
+  .feature-grid { grid-template-columns: 1fr; }
+  .feature-card { min-height: 210px; }
+  .login-panel { padding: 40px 48px; }
+  .documents-hero { align-items: flex-start; }
+  .documents-toolbar, .history-toolbar { align-items: stretch; flex-direction: column; }
+  .documents-search, .history-search { width: 100%; }
+  .document-filters, .history-filters { width: 100%; overflow-x: auto; padding-bottom: 2px; }
+  .document-filters button, .history-filters button { flex: 1 0 auto; }
+  .documents-grid { grid-template-columns: 1fr; }
+  .document-card { min-height: 0; }
+  .summary-output { min-height: 420px; }
+  .summary-placeholder { min-height: 418px; }
+  .chat-documents { display: block; }
+  .chat-document-select, .chat-selected-document, .chat-documents__note { margin-top: 16px; }
+  .chat-conversation { height: 650px; }
+  .history-item { grid-template-columns: auto minmax(0, 1fr); }
+  .history-item__actions { grid-column: 2; }
+}
+
+@media (max-width: 520px) {
+  :root { --page-title-size: 28px; }
+  .main-content { padding: 24px 16px; }
+  .header { padding-inline: 16px; }
+  .header h1 { font-size: 18px; }
+  .welcome { padding: 28px 24px; }
+  .welcome h2 { font-size: 28px; }
+  .login-page { padding: 0; }
+  .login-panel { padding: 28px 24px 40px; }
+  .login-panel__mobile-brand { margin-bottom: 56px; }
+  .login-heading h1 { font-size: 30px; }
+  .register-panel { padding: 24px 20px 32px; }
+  .register-panel .login-panel__mobile-brand { margin-bottom: 32px; }
+  .documents-hero { gap: 16px; }
+  .documents-upload { width: 100%; }
+  .document-card { align-items: flex-start; padding: 16px; }
+  .document-card__file { width: 52px; height: 60px; flex-basis: 52px; }
+  .document-card__heading { align-items: flex-start; flex-direction: column; }
+  .document-card__actions { flex-wrap: wrap; }
+  .document-card__actions .document-action--delete { margin-left: 0; }
+  .summary-settings, .summary-result { padding: 20px; }
+  .summary-length__copy { grid-template-columns: 1fr; }
+  .summary-length__copy em { grid-column: 1; grid-row: auto; }
+  .summary-result__actions { flex-direction: column; }
+  .summary-result__actions button { justify-content: center; }
+  .chat-conversation { height: 620px; }
+  .chat-messages { padding: 20px 12px; }
+  .chat-message__avatar { width: 32px; height: 32px; flex-basis: 32px; }
+  .chat-message__body { max-width: calc(100% - 40px); }
+  .chat-message__bubble { padding: 11px 13px; font-size: 13px; }
+  .chat-composer-wrap { padding-inline: 10px; }
+  .chat-composer button { width: 40px; padding: 0; justify-content: center; }
+  .chat-composer button span { display: none; }
+  .history-item { min-height: 0; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .history-item__icon { width: 42px; height: 42px; }
+  .history-item__heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .history-item__heading h3, .history-item__content > p { white-space: normal; }
+  .history-item__actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .history-dialog__message { max-width: 96%; }
+}
+
+@media (max-width: 390px) {
+  .main-content { padding-inline: 14px; }
+  .header { padding-inline: 12px; }
+  .header__title-group { gap: 4px; }
+  .documents-toolbar, .history-toolbar { padding: 10px; }
+  .document-card { gap: 12px; }
+  .document-card__actions button { font-size: 11px; }
+  .document-action--delete span { display: none; }
+  .selected-document__ready { display: none; }
+  .chat-conversation__mode { display: none; }
+  .history-item__actions button { padding-inline: 10px; }
+}
