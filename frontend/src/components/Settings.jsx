@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import {
+  getDisplayName,
+  getDisplayUsername,
+  getUserInitials,
+} from '../utils/userDisplay'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -14,7 +20,14 @@ function SectionHeading({ id, icon, title, description }) {
 }
 
 function ProfileSettings() {
-  const [fullName, setFullName] = useState('Minh Nguyễn')
+  const { user, isAuthenticated } = useAuth()
+  const currentUser = isAuthenticated ? user : null
+  const displayName = getDisplayName(currentUser)
+  const username = getDisplayUsername(currentUser)
+  const initials = getUserInitials(currentUser)
+  const [fullName, setFullName] = useState(() => (
+    typeof currentUser?.full_name === 'string' ? currentUser.full_name.trim() : ''
+  ))
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -33,7 +46,7 @@ function ProfileSettings() {
     <section className="settings-card" aria-labelledby="profile-settings-title">
       <SectionHeading id="profile-settings-title" icon="user" title="Thông tin cá nhân" description="Quản lý thông tin hiển thị của tài khoản." />
       <div className="settings-profile">
-        <div className="settings-avatar" aria-label="Ảnh đại diện của Minh Nguyễn">MN</div>
+        <div className="settings-avatar" aria-label={`Ảnh đại diện của ${displayName}`}>{initials}</div>
         <div><strong>Ảnh đại diện</strong><p>Ảnh đại diện mẫu của tài khoản.</p></div>
       </div>
       <form className="settings-form" onSubmit={handleSubmit} noValidate>
@@ -44,7 +57,7 @@ function ProfileSettings() {
         </label>
         <label className="settings-field">
           <span>Tên đăng nhập</span>
-          <div className="settings-control settings-control--readonly"><span className="settings-at">@</span><input type="text" value="minhnguyen" readOnly aria-readonly="true" /></div>
+          <div className="settings-control settings-control--readonly"><span className="settings-at">@</span><input type="text" value={username} placeholder="Chưa có tên đăng nhập" readOnly aria-readonly="true" /></div>
           <small>Tên đăng nhập hiện chưa thể thay đổi.</small>
         </label>
         <button className="settings-primary-button" type="submit"><Icon name="check" size={17} />Lưu thay đổi</button>

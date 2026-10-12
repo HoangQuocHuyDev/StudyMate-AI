@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import { getUserInitials } from '../utils/userDisplay'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -87,11 +89,11 @@ function DocumentPanel({ selectedId, onSelect }) {
   )
 }
 
-function ChatMessage({ message, onCopy, copied }) {
+function ChatMessage({ message, onCopy, copied, userInitials }) {
   if (message.role === 'user') {
     return (
       <div className="chat-message chat-message--user">
-        <div className="chat-message__avatar">MN</div>
+        <div className="chat-message__avatar">{userInitials}</div>
         <div className="chat-message__bubble"><p>{message.content}</p></div>
       </div>
     )
@@ -131,8 +133,10 @@ function TypingIndicator() {
 }
 
 function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
+  const { user, isAuthenticated } = useAuth()
   const [selectedId, setSelectedId] = useState(sampleDocuments[0].id)
   const [question, setQuestion] = useState('')
+  const userInitials = getUserInitials(isAuthenticated ? user : null)
   const [messages, setMessages] = useState([])
   const [isAnswering, setIsAnswering] = useState(false)
   const [copiedId, setCopiedId] = useState(null)
@@ -258,7 +262,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                   </div>
                 ) : (
                   <div className="chat-messages">
-                    {messages.map((message) => <ChatMessage message={message} onCopy={copyAnswer} copied={copiedId === message.id} key={message.id} />)}
+                    {messages.map((message) => <ChatMessage message={message} onCopy={copyAnswer} copied={copiedId === message.id} userInitials={userInitials} key={message.id} />)}
                     {isAnswering && <TypingIndicator />}
                     <div ref={conversationEnd} />
                   </div>

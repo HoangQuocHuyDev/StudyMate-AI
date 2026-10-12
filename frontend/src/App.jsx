@@ -1,30 +1,64 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AdminDashboard from './components/admin/AdminDashboard'
 import Chat from './components/Chat'
 import Documents from './components/Documents'
 import History from './components/History'
 import Login from './components/Login'
 import MainLayout from './components/MainLayout'
+import NotFound from './components/NotFound'
 import Register from './components/Register'
 import Settings from './components/Settings'
 import Summarize from './components/Summarize'
+import { useAuth } from './contexts/AuthContext'
+import { useNavigation } from './navigation/NavigationContext'
+import {
+  adminRoutes,
+  getRouteRedirect,
+  knownRoutes,
+  publicRoutes,
+} from './navigation/routePolicy'
 import './App.css'
 import './ui-polish.css'
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const currentPath = window.location.pathname.replace(/\/$/, '')
+  const { isAuthenticated, isLoading, user } = useAuth()
+  const { currentPath, navigate } = useNavigation()
+  const isKnownRoute = knownRoutes.has(currentPath)
+  const isPublicRoute = publicRoutes.has(currentPath)
+  const isAdminRoute = adminRoutes.has(currentPath)
+
+  useEffect(() => {
+    const redirectPath = getRouteRedirect({
+      currentPath,
+      isAuthenticated,
+      isLoading,
+      role: user?.role,
+    })
+
+    if (redirectPath && redirectPath !== currentPath) {
+      navigate(redirectPath, { replace: true })
+    }
+  }, [
+    currentPath,
+    isAuthenticated,
+    isLoading,
+    navigate,
+    user,
+  ])
+
+  if (!isKnownRoute) return <NotFound />
+
+  if (isPublicRoute) {
+    if (isAuthenticated && !isLoading) return null
+    return currentPath === '/login' ? <Login /> : <Register />
+  }
+
+  if (isLoading || !isAuthenticated) return null
+  if (isAdminRoute && user?.role !== 'ADMIN') return null
 
   if (currentPath === '/admin') {
     return <AdminDashboard />
-  }
-
-  if (currentPath === '/login') {
-    return <Login />
-  }
-
-  if (currentPath === '/register') {
-    return <Register />
   }
 
   if (currentPath === '/documents') {

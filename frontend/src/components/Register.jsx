@@ -1,4 +1,10 @@
 import { useState } from 'react'
+import {
+  ApiConfigurationError,
+  ApiHttpError,
+  ApiNetworkError,
+} from '../services/apiClient'
+import { register } from '../services/authService'
 import './Login.css'
 import './Register.css'
 
@@ -53,6 +59,29 @@ function FieldIcon({ type }) {
 }
 
 const initialForm = { fullName: '', username: '', password: '', confirmPassword: '' }
+const backendFieldNames = {
+  full_name: 'fullName',
+  username: 'username',
+  password: 'password',
+  confirm_password: 'confirmPassword',
+}
+
+function getBackendValidationErrors(detail) {
+  if (!Array.isArray(detail)) return {}
+
+  return detail.reduce((fieldErrors, validationError) => {
+    const backendField = Array.isArray(validationError?.loc)
+      ? validationError.loc.at(-1)
+      : null
+    const fieldName = backendFieldNames[backendField]
+
+    if (fieldName && typeof validationError?.msg === 'string') {
+      fieldErrors[fieldName] = validationError.msg.replace(/^Value error,\s*/i, '')
+    }
+
+    return fieldErrors
+  }, {})
+}
 
 function Register() {
   const [form, setForm] = useState(initialForm)
@@ -60,7 +89,8 @@ function Register() {
   const [touched, setTouched] = useState({})
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const validateField = (name, value, currentForm = form) => {
     if (!value.trim()) {
@@ -78,7 +108,7 @@ function Register() {
     const { name, value } = event.target
     const nextForm = { ...form, [name]: value }
     setForm(nextForm)
-    setNotice('')
+    setNotice(null)
 
     if (touched[name]) {
       setErrors((current) => ({ ...current, [name]: validateField(name, value, nextForm) }))
@@ -94,8 +124,10 @@ function Register() {
     setErrors((current) => ({ ...current, [name]: validateField(name, value) }))
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
+    if (isSubmitting) return
+
     const nextErrors = Object.keys(initialForm).reduce((result, name) => {
       result[name] = validateField(name, form[name])
       return result
@@ -105,11 +137,67 @@ function Register() {
     setErrors(nextErrors)
 
     if (Object.values(nextErrors).some(Boolean)) {
-      setNotice('')
+      setNotice(null)
       return
     }
 
-    setNotice('Chức năng đăng ký đang được phát triển')
+    setIsSubmitting(true)
+    setNotice(null)
+
+    try {
+      await register(form)
+      setForm(initialForm)
+      setErrors({})
+      setTouched({})
+      setShowPassword(false)
+      setShowConfirmPassword(false)
+      setNotice({
+        type: 'success',
+        message: 'Đăng ký thành công. Bạn có thể đăng nhập bằng tài khoản vừa tạo.',
+      })
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.status === 409) {
+        setErrors((current) => ({
+          ...current,
+          username: 'Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác.',
+        }))
+        setTouched((current) => ({ ...current, username: true }))
+        setNotice({ type: 'error', message: 'Không thể đăng ký với tên đăng nhập này.' })
+      } else if (error instanceof ApiHttpError && error.status === 422) {
+        const backendErrors = getBackendValidationErrors(error.data?.detail)
+        setErrors((current) => ({ ...current, ...backendErrors }))
+        setTouched((current) => ({
+          ...current,
+          ...Object.fromEntries(Object.keys(backendErrors).map((name) => [name, true])),
+        }))
+        setNotice({
+          type: 'error',
+          message: error.message || 'Dữ liệu đăng ký chưa hợp lệ.',
+        })
+      } else if (error instanceof ApiNetworkError) {
+        setNotice({
+          type: 'error',
+          message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra Backend và thử lại.',
+        })
+      } else if (error instanceof ApiConfigurationError) {
+        setNotice({
+          type: 'error',
+          message: 'Frontend chưa được cấu hình địa chỉ API.',
+        })
+      } else if (error instanceof ApiHttpError) {
+        setNotice({
+          type: 'error',
+          message: error.message || 'Không thể đăng ký lúc này. Vui lòng thử lại.',
+        })
+      } else {
+        setNotice({
+          type: 'error',
+          message: 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại.',
+        })
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const renderPasswordToggle = (visible, setter, label) => (
@@ -191,11 +279,18 @@ function Register() {
                 {errors.confirmPassword && <p className="form-field__error" id="confirm-password-error">{errors.confirmPassword}</p>}
               </div>
 
-              <button className="login-submit" type="submit">
-                Đăng ký
+              <button className="login-submit" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}>
+                {isSubmitting ? 'Đang đăng ký...' : 'Đăng ký'}
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
               </button>
-              {notice && <p className="login-notice" role="status">{notice}</p>}
+              {notice && (
+                <p
+                  className={`login-notice ${notice.type === 'error' ? 'login-notice--error' : ''}`}
+                  role={notice.type === 'error' ? 'alert' : 'status'}
+                >
+                  {notice.message}
+                </p>
+              )}
             </form>
 
             <p className="signup-prompt">Đã có tài khoản? <a href="/login">Đăng nhập ngay</a></p>

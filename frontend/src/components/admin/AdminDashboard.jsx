@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext'
+import { getDisplayName, getRoleLabel, getUserInitials } from '../../utils/userDisplay'
 import Icon from '../Icons'
 import AdminDocuments from './AdminDocuments'
 import AdminOverview from './AdminOverview'
@@ -31,11 +33,16 @@ const viewTitles = {
 }
 
 function AdminDashboard() {
+  const { user, isAuthenticated } = useAuth()
   const [activeView, setActiveView] = useState('overview')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [users, setUsers] = useState(initialUsers)
   const [documents, setDocuments] = useState(initialDocuments)
   const title = viewTitles[activeView]
+  const currentUser = isAuthenticated ? user : null
+  const displayName = getDisplayName(currentUser)
+  const roleLabel = getRoleLabel(currentUser)
+  const userInitials = getUserInitials(currentUser)
 
   useEffect(() => {
     if (!isSidebarOpen) return undefined
@@ -69,12 +76,12 @@ function AdminDashboard() {
           </div>
           <div className="admin-header__right">
             <span className="admin-demo-badge"><i />Dữ liệu minh họa</span>
-            <div className="admin-profile"><span>QT</span><div><strong>Quản trị viên</strong><small>Chế độ phát triển</small></div></div>
+            <div className="admin-profile"><span>{userInitials}</span><div><strong>{displayName}</strong><small>{roleLabel}</small></div></div>
           </div>
         </header>
 
         <main className="admin-content">
-          <div className="admin-warning"><Icon name="shield" size={17} /><p><strong>Giao diện quản trị đang ở chế độ minh họa.</strong> Chưa triển khai xác thực hoặc phân quyền thực tế; việc ẩn menu không phải là cơ chế bảo mật.</p></div>
+          <div className="admin-warning"><Icon name="shield" size={17} /><p><strong>Giao diện quản trị đang sử dụng dữ liệu minh họa.</strong> Phân quyền giao diện không thay thế việc bảo vệ từng API quản trị ở Backend.</p></div>
           {activeView === 'overview' && <AdminOverview onNavigate={setActiveView} />}
           {activeView === 'users' && <AdminUsers users={users} onToggleStatus={toggleUserStatus} />}
           {activeView === 'documents' && <AdminDocuments documents={documents} onDelete={deleteDocument} />}

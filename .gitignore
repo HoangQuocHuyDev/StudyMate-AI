@@ -27,3 +27,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Runtime document storage
+backend/storage/

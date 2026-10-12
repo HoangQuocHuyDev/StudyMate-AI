@@ -119,9 +119,10 @@
 
 .profile-button { display: flex; align-items: center; gap: 9px; padding: 3px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
 .avatar { display: grid; width: 38px; height: 38px; place-items: center; border: 2px solid #fff; border-radius: 50%; color: #fff; background: linear-gradient(145deg, #546de5, #3151c9); font-size: 11px; font-weight: 700; box-shadow: 0 0 0 1px #dfe5ee; }
-.profile-copy { display: grid; gap: 1px; text-align: left; }
+.profile-copy { display: grid; min-width: 0; max-width: 180px; gap: 1px; text-align: left; }
 .profile-copy strong { color: #313b4c; font-size: 11px; }
 .profile-copy small { color: #9aa3b1; font-size: 9px; }
+.profile-copy strong, .profile-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-chevron { margin: 0 5px; color: #939cab; }
 
 .main-content { width: min(100%, 1180px); margin: 0 auto; padding: clamp(32px, 5vw, 64px) clamp(24px, 5vw, 64px) 28px; }

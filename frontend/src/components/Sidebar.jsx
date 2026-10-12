@@ -1,4 +1,6 @@
 import Icon from './Icons'
+import { useAuth } from '../contexts/AuthContext'
+import { useNavigation } from '../navigation/NavigationContext'
 
 const navigation = [
   { label: 'Tổng quan', icon: 'overview', href: '/' },
@@ -9,8 +11,15 @@ const navigation = [
 ]
 
 function Sidebar({ isOpen, onClose }) {
-  const currentPath = window.location.pathname.replace(/\/$/, '') || '/'
+  const { logout } = useAuth()
+  const { currentPath, navigate } = useNavigation()
   const isSettingsActive = currentPath === '/settings'
+
+  const handleLogout = () => {
+    onClose()
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`} aria-label="Điều hướng chính">
@@ -37,6 +46,7 @@ function Sidebar({ isOpen, onClose }) {
 
       <div className="sidebar__bottom">
         <a className={`nav-item ${isSettingsActive ? 'nav-item--active' : ''}`} href="/settings" onClick={onClose} aria-current={isSettingsActive ? 'page' : undefined}><Icon name="settings" /><span>Cài đặt</span></a>
+        <button className="nav-item" type="button" onClick={handleLogout}><Icon name="logout" /><span>Đăng xuất</span></button>
       </div>
     </aside>
   )

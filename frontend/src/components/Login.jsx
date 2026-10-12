@@ -1,4 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { AuthSessionError, useAuth } from '../contexts/AuthContext'
+import {
+  ApiConfigurationError,
+  ApiHttpError,
+  ApiNetworkError,
+} from '../services/apiClient'
+import { InvalidLoginResponseError, login } from '../services/authService'
+import { useNavigation } from '../navigation/NavigationContext'
 import './Login.css'
 
 const usernamePattern = /^[A-Za-z0-9_]+$/
@@ -28,16 +36,25 @@ function EyeIcon({ hidden }) {
 }
 
 function Login() {
+  const { loginSession } = useAuth()
+  const { navigate } = useNavigation()
   const [form, setForm] = useState({ username: '', password: '', remember: false })
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
   const [notice, setNotice] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const requestVersion = useRef(0)
+  const submissionInProgress = useRef(false)
+
+  useEffect(() => () => {
+    requestVersion.current += 1
+    submissionInProgress.current = false
+  }, [])
 
   const validateField = (name, value) => {
     if (!value.trim()) return name === 'username' ? 'Vui lòng nhập tên đăng nhập.' : 'Vui lòng nhập mật khẩu.'
     if (name === 'username' && (value.length < 3 || value.length > 30)) return 'Tên đăng nhập phải dài từ 3 đến 30 ký tự.'
     if (name === 'username' && !usernamePattern.test(value)) return 'Tên đăng nhập chỉ được chứa chữ cái không dấu, số và dấu gạch dưới.'
-    if (name === 'password' && value.length < 8) return 'Mật khẩu phải có ít nhất 8 ký tự.'
     return ''
   }
 
@@ -53,8 +70,10 @@ function Login() {
     setErrors((current) => ({ ...current, [name]: validateField(name, value) }))
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
+    if (submissionInProgress.current) return
+
     const nextErrors = {
       username: validateField('username', form.username),
       password: validateField('password', form.password),
@@ -66,7 +85,57 @@ function Login() {
       return
     }
 
-    setNotice('Thông tin hợp lệ. Chức năng xác thực hiện chưa được kết nối.')
+    const currentRequest = requestVersion.current + 1
+    requestVersion.current = currentRequest
+    submissionInProgress.current = true
+    setIsSubmitting(true)
+    setNotice('')
+
+    try {
+      const response = await login({
+        username: form.username,
+        password: form.password,
+      })
+
+      if (requestVersion.current !== currentRequest) return
+
+      const verifiedUser = await loginSession(response.access_token)
+
+      if (requestVersion.current !== currentRequest) return
+      if (verifiedUser === null) {
+        setNotice('Quá trình xác minh phiên đã bị hủy. Vui lòng thử lại.')
+        return
+      }
+
+      setForm((current) => ({ ...current, password: '' }))
+      setShowPassword(false)
+      navigate(verifiedUser.role === 'ADMIN' ? '/admin' : '/', { replace: true })
+    } catch (error) {
+      if (requestVersion.current !== currentRequest) return
+
+      if (error instanceof ApiHttpError && error.status === 401) {
+        setNotice('Tên đăng nhập hoặc mật khẩu không chính xác.')
+      } else if (error instanceof AuthSessionError) {
+        setNotice(error.message)
+      } else if (error instanceof ApiNetworkError) {
+        setNotice('Không thể kết nối đến máy chủ. Vui lòng kiểm tra Backend và thử lại.')
+      } else if (error instanceof ApiConfigurationError) {
+        setNotice('Frontend chưa được cấu hình địa chỉ API hợp lệ.')
+      } else if (error instanceof InvalidLoginResponseError) {
+        setNotice('Đăng nhập không thành công do phản hồi máy chủ không hợp lệ.')
+      } else if (error instanceof ApiHttpError && error.status === 503) {
+        setNotice('Máy chủ tạm thời không thể xử lý đăng nhập. Vui lòng thử lại.')
+      } else if (error instanceof ApiHttpError) {
+        setNotice(error.message || 'Không thể đăng nhập lúc này. Vui lòng thử lại.')
+      } else {
+        setNotice('Đã xảy ra lỗi không mong muốn. Vui lòng thử lại.')
+      }
+    } finally {
+      if (requestVersion.current === currentRequest) {
+        submissionInProgress.current = false
+        setIsSubmitting(false)
+      }
+    }
   }
 
   return (
@@ -121,7 +190,7 @@ function Login() {
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <rect x="4" y="10" width="16" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" />
                   </svg>
-                  <input id="password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={handleChange} onBlur={handleBlur} placeholder="Nhập mật khẩu" autoComplete="current-password" minLength="8" required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'password-error' : undefined} />
+                  <input id="password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={handleChange} onBlur={handleBlur} placeholder="Nhập mật khẩu" autoComplete="current-password" required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'password-error' : undefined} />
                   <button className="password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={showPassword}>
                     <EyeIcon hidden={showPassword} />
                   </button>
@@ -137,12 +206,19 @@ function Login() {
                 Ghi nhớ đăng nhập
               </label>
 
-              <button className="login-submit" type="submit">
-                Đăng nhập
+              <button className="login-submit" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}>
+                {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
               </button>
 
-              {notice && <p className="login-notice" role="status">{notice}</p>}
+              {notice && (
+                <p
+                  className="login-notice login-notice--login-error"
+                  role="alert"
+                >
+                  {notice}
+                </p>
+              )}
             </form>
 
             <p className="signup-prompt">Chưa có tài khoản? <a href="/register">Đăng ký ngay</a></p>

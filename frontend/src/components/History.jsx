@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import { getUserInitials } from '../utils/userDisplay'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -114,7 +116,7 @@ function ConversationItem({ conversation, onView, onDelete }) {
   )
 }
 
-function ConversationDialog({ conversation, onClose }) {
+function ConversationDialog({ conversation, onClose, userInitials }) {
   return (
     <div className="history-modal" role="presentation" onMouseDown={onClose}>
       <section className="history-dialog history-dialog--conversation" role="dialog" aria-modal="true" aria-labelledby="conversation-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -127,7 +129,7 @@ function ConversationDialog({ conversation, onClose }) {
         <div className="history-dialog__messages">
           {conversation.messages.map((message, index) => (
             <div className={`history-dialog__message history-dialog__message--${message.role}`} key={`${message.role}-${index}`}>
-              <span>{message.role === 'user' ? 'MN' : <Icon name="bot" size={17} />}</span>
+              <span>{message.role === 'user' ? userInitials : <Icon name="bot" size={17} />}</span>
               <div><strong>{message.role === 'user' ? 'Bạn' : 'StudyMate AI'}</strong><p>{message.content}</p></div>
             </div>
           ))}
@@ -155,11 +157,13 @@ function DeleteDialog({ conversation, onCancel, onConfirm }) {
 }
 
 function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
+  const { user, isAuthenticated } = useAuth()
   const [conversations, setConversations] = useState(initialConversations)
   const [query, setQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
   const [selectedConversation, setSelectedConversation] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const userInitials = getUserInitials(isAuthenticated ? user : null)
 
   useEffect(() => {
     if (!isSidebarOpen) return undefined
@@ -254,7 +258,7 @@ function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         </main>
       </div>
 
-      {selectedConversation && <ConversationDialog conversation={selectedConversation} onClose={() => setSelectedConversation(null)} />}
+      {selectedConversation && <ConversationDialog conversation={selectedConversation} onClose={() => setSelectedConversation(null)} userInitials={userInitials} />}
       {deleteTarget && <DeleteDialog conversation={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
     </div>
   )

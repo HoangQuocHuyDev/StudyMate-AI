@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import wavingHand from '../assets/waving-hand-3d.png'
+import { useAuth } from '../contexts/AuthContext'
+import { getDisplayName } from '../utils/userDisplay'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -11,6 +13,9 @@ const features = [
 ]
 
 function MainLayout({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
+  const { user, isAuthenticated } = useAuth()
+  const displayName = getDisplayName(isAuthenticated ? user : null)
+
   useEffect(() => {
     if (!isSidebarOpen) return undefined
     const handleKeyDown = (event) => event.key === 'Escape' && onCloseSidebar()
@@ -33,7 +38,7 @@ function MainLayout({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           <section className="welcome" aria-labelledby="welcome-title">
             <div className="welcome__copy">
               <span className="welcome__badge"><Icon name="sparkle" size={15} /> Trợ lý học tập AI</span>
-              <h2 id="welcome-title">Chào buổi sáng, Minh! <img className="welcome__wave" src={wavingHand} alt="" /></h2>
+              <h2 id="welcome-title">Chào buổi sáng, {displayName}! <img className="welcome__wave" src={wavingHand} alt="" /></h2>
               <p>Sẵn sàng học hiệu quả hơn hôm nay? Hãy bắt đầu với tài liệu của bạn.</p>
             </div>
             <div className="welcome__visual" aria-hidden="true">

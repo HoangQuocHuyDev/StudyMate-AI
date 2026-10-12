@@ -1,4 +1,6 @@
 import Icon from '../Icons'
+import { useAuth } from '../../contexts/AuthContext'
+import { useNavigation } from '../../navigation/NavigationContext'
 
 const items = [
   { id: 'overview', label: 'Tổng quan', icon: 'overview' },
@@ -7,6 +9,15 @@ const items = [
 ]
 
 function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
+  const { logout } = useAuth()
+  const { navigate } = useNavigation()
+
+  const handleLogout = () => {
+    onClose()
+    logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <aside className={`admin-sidebar ${isOpen ? 'admin-sidebar--open' : ''}`} aria-label="Điều hướng quản trị">
       <div className="admin-brand">
@@ -24,8 +35,9 @@ function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
         ))}
       </nav>
 
-      <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Chế độ phát triển</strong><span>Chưa áp dụng xác thực và phân quyền thực tế.</span></p></div>
+      <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Dữ liệu minh họa</strong><span>Quyền giao diện được xác minh qua tài khoản hiện tại.</span></p></div>
       <a className="admin-back-link" href="/"><Icon name="arrow" size={17} />Về giao diện sinh viên</a>
+      <button className="admin-back-link admin-logout-button" type="button" onClick={handleLogout}><Icon name="logout" size={17} />Đăng xuất</button>
     </aside>
   )
 }
