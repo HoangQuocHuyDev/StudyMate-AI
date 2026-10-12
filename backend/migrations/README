@@ -1,0 +1,3 @@
+Alembic migration environment for StudyMate AI.
+
+Revision files generated in the future belong in migrations/versions/.
