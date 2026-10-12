@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '')
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? '')
   .trim()
   .replace(/\/+$/, '')
 
@@ -115,7 +115,7 @@ export async function request(path, options = {}) {
       headers,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    if (error?.name === 'AbortError') throw error
 
     throw new ApiNetworkError(
       'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
@@ -139,6 +139,12 @@ export const apiClient = {
   request,
   get: (path, options) => request(path, { ...options, method: 'GET' }),
   post: (path, json, options) => request(path, { ...options, method: 'POST', json }),
+  postForm: (path, formData, options) => {
+    if (!(formData instanceof FormData)) {
+      throw new TypeError('Dữ liệu multipart phải là một FormData hợp lệ.')
+    }
+    return request(path, { ...options, method: 'POST', body: formData })
+  },
   put: (path, json, options) => request(path, { ...options, method: 'PUT', json }),
   patch: (path, json, options) => request(path, { ...options, method: 'PATCH', json }),
   delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
