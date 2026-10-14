@@ -31,7 +31,7 @@ function AdminDocuments({ documents, onDelete }) {
       <div className="admin-section-heading"><div><p>Kho tài liệu hệ thống</p><h2 id="admin-documents-title">Danh sách tài liệu</h2><span>Theo dõi trạng thái và quản lý tài liệu mẫu đã được tải lên.</span></div><strong>{documents.length} tài liệu</strong></div>
       <div className="admin-toolbar">
         <label className="admin-search"><Icon name="search" size={18} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên tài liệu hoặc người tải..." aria-label="Tìm kiếm tài liệu quản trị" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Xóa tìm kiếm"><Icon name="close" size={15} /></button>}</label>
-        <label className="admin-filter"><span>Định dạng</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="all">Tất cả</option><option value="PDF">PDF</option><option value="DOCX">DOCX</option><option value="TXT">TXT</option></select><Icon name="chevronDown" size={15} /></label>
+        <label className="admin-filter"><span>Định dạng</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="all">Tất cả</option><option value="PDF">PDF</option><option value="DOCX">DOCX</option></select><Icon name="chevronDown" size={15} /></label>
         <label className="admin-filter"><span>Trạng thái</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tất cả</option><option value="complete">Hoàn tất</option><option value="processing">Đang xử lý</option><option value="error">Lỗi xử lý</option></select><Icon name="chevronDown" size={15} /></label>
       </div>
 

@@ -10,12 +10,13 @@ export class ApiConfigurationError extends Error {
 }
 
 export class ApiHttpError extends Error {
-  constructor(message, { status, statusText, data }) {
+  constructor(message, { status, statusText, data, retryAfter = null }) {
     super(message)
     this.name = 'ApiHttpError'
     this.status = status
     this.statusText = statusText
     this.data = data
+    this.retryAfter = retryAfter
   }
 }
 
@@ -45,8 +46,10 @@ function buildUrl(path) {
   return `${API_BASE_URL}${normalizedPath}`
 }
 
-async function parseResponse(response) {
+async function parseResponse(response, responseType = 'auto') {
   if (response.status === 204 || response.status === 205) return null
+
+  if (responseType === 'blob') return response.blob()
 
   const text = await response.text()
   if (!text) return null
@@ -96,8 +99,12 @@ export async function request(path, options = {}) {
   const {
     json,
     headers: customHeaders,
+    responseType = 'auto',
     ...fetchOptions
   } = options
+  if (!['auto', 'blob'].includes(responseType)) {
+    throw new TypeError('Kiểu dữ liệu phản hồi không được hỗ trợ.')
+  }
   const headers = new Headers(customHeaders)
 
   if (json !== undefined) {
@@ -123,12 +130,13 @@ export async function request(path, options = {}) {
     )
   }
 
-  const data = await parseResponse(response)
+  const data = await parseResponse(response, response.ok ? responseType : 'auto')
   if (!response.ok) {
     throw new ApiHttpError(getErrorMessage(data, response), {
       status: response.status,
       statusText: response.statusText,
       data,
+      retryAfter: response.headers.get('retry-after'),
     })
   }
 
@@ -138,6 +146,11 @@ export async function request(path, options = {}) {
 export const apiClient = {
   request,
   get: (path, options) => request(path, { ...options, method: 'GET' }),
+  getBlob: (path, options) => request(path, {
+    ...options,
+    method: 'GET',
+    responseType: 'blob',
+  }),
   post: (path, json, options) => request(path, { ...options, method: 'POST', json }),
   postForm: (path, formData, options) => {
     if (!(formData instanceof FormData)) {

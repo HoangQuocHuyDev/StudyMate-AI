@@ -39,7 +39,7 @@ const initialConversations = [
     id: 3,
     title: 'So sánh mảng và danh sách liên kết',
     document: 'Ghi chú ôn tập Cấu trúc dữ liệu',
-    type: 'TXT',
+    type: 'DOCX',
     time: '05/10/2026, 14:30',
     daysAgo: 3,
     preview: 'Mảng hỗ trợ truy cập theo chỉ số nhanh, còn danh sách liên kết linh hoạt hơn khi chèn và xóa...',

@@ -48,7 +48,7 @@ def test_user_can_access_user_endpoint(
     active_user,
 ) -> None:
     override_db(fake_session_factory(get_result=active_user), rbac_app)
-    token = create_access_token(active_user.id)
+    token = create_access_token(active_user.id, active_user.token_version)
 
     response = rbac_client.get(
         "/user-only",
@@ -66,7 +66,7 @@ def test_admin_can_access_allowed_and_admin_endpoints(
 ) -> None:
     admin = user_factory(user_id=7, username="admin_user", role="ADMIN")
     override_db(fake_session_factory(get_result=admin), rbac_app)
-    token = create_access_token(admin.id)
+    token = create_access_token(admin.id, admin.token_version)
 
     assert rbac_client.get(
         "/user-or-admin",
@@ -85,7 +85,7 @@ def test_user_cannot_access_admin_endpoint(
     active_user,
 ) -> None:
     override_db(fake_session_factory(get_result=active_user), rbac_app)
-    token = create_access_token(active_user.id)
+    token = create_access_token(active_user.id, active_user.token_version)
 
     response = rbac_client.get(
         "/admin-only",
@@ -117,7 +117,7 @@ def test_rbac_rejects_inactive_account(
 ) -> None:
     inactive = user_factory(is_active=False)
     override_db(fake_session_factory(get_result=inactive), rbac_app)
-    token = create_access_token(inactive.id)
+    token = create_access_token(inactive.id, inactive.token_version)
 
     response = rbac_client.get(
         "/user-only",
@@ -143,6 +143,9 @@ def test_role_claim_cannot_escalate_database_role(
             "exp": now + timedelta(minutes=30),
             "type": "access",
             "role": "ADMIN",
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
+            "ver": active_user.token_version,
         },
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,

@@ -1,6 +1,7 @@
 """Authentication dependencies for protected API routes."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Security, status
@@ -14,6 +15,14 @@ from app.models.user import User
 
 
 _VALID_ROLES = frozenset({"USER", "ADMIN"})
+
+
+@dataclass(frozen=True, slots=True)
+class AuthenticatedUser:
+    """Database user paired with the version asserted by its access token."""
+
+    user: User
+    token_version: int
 
 
 bearer_scheme = HTTPBearer(
@@ -31,25 +40,25 @@ def _unauthorized_exception() -> HTTPException:
     )
 
 
-def get_current_user(
+def get_authenticated_user(
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Security(bearer_scheme),
     ],
     db: Annotated[Session, Depends(get_db)],
-) -> User:
-    """Return the active database user represented by a valid access token."""
+) -> AuthenticatedUser:
+    """Validate a token and return its matching active database user."""
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorized_exception()
 
     try:
-        user_id = decode_access_token(credentials.credentials)
+        claims = decode_access_token(credentials.credentials)
     except AccessTokenError:
         raise _unauthorized_exception() from None
 
     try:
-        user = db.get(User, user_id)
+        user = db.get(User, claims.user_id)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
@@ -57,10 +66,25 @@ def get_current_user(
             detail="Không thể xác minh người dùng lúc này.",
         ) from None
 
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or user.token_version != claims.token_version
+    ):
         raise _unauthorized_exception()
 
-    return user
+    return AuthenticatedUser(
+        user=user,
+        token_version=claims.token_version,
+    )
+
+
+def get_current_user(
+    authenticated: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+) -> User:
+    """Return the active user from a version-validated access token."""
+
+    return authenticated.user
 
 
 def require_roles(*allowed_roles: str) -> Callable[..., User]:

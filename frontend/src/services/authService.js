@@ -1,4 +1,4 @@
-import apiClient from './apiClient'
+import apiClient from './apiClient.js'
 
 export class InvalidLoginResponseError extends Error {
   constructor() {
@@ -82,4 +82,21 @@ export async function getCurrentUser(accessToken) {
   }
 
   return user
+}
+
+export async function logout(accessToken, { signal } = {}) {
+  if (
+    typeof accessToken !== 'string'
+    || !accessToken
+    || accessToken !== accessToken.trim()
+  ) {
+    throw new TypeError('Access token không hợp lệ.')
+  }
+
+  await apiClient.post('/auth/logout', undefined, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    signal,
+  })
 }

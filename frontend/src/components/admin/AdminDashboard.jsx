@@ -20,10 +20,10 @@ const initialUsers = [
 const initialDocuments = [
   { id: 1, name: 'Giáo trình Trí tuệ nhân tạo', owner: 'Minh Nguyễn', type: 'PDF', size: '4,8 MB', uploadedAt: '08/10/2026', status: 'complete' },
   { id: 2, name: 'Bài giảng Kinh tế vi mô', owner: 'Nguyễn Hoàng Anh', type: 'DOCX', size: '1,2 MB', uploadedAt: '07/10/2026', status: 'complete' },
-  { id: 3, name: 'Ghi chú Cấu trúc dữ liệu', owner: 'Võ Đức Thành', type: 'TXT', size: '18 KB', uploadedAt: '06/10/2026', status: 'processing' },
+  { id: 3, name: 'Ghi chú Cấu trúc dữ liệu', owner: 'Võ Đức Thành', type: 'DOCX', size: '18 KB', uploadedAt: '06/10/2026', status: 'processing' },
   { id: 4, name: 'Nhập môn Machine Learning', owner: 'Minh Nguyễn', type: 'PDF', size: '3,1 MB', uploadedAt: '05/10/2026', status: 'complete' },
   { id: 5, name: 'Tổng hợp câu hỏi Pháp luật', owner: 'Lê Quốc Bảo', type: 'DOCX', size: '840 KB', uploadedAt: '03/10/2026', status: 'error' },
-  { id: 6, name: 'Từ vựng tiếng Anh chuyên ngành', owner: 'Trần Thu Hà', type: 'TXT', size: '26 KB', uploadedAt: '30/09/2026', status: 'complete' },
+  { id: 6, name: 'Từ vựng tiếng Anh chuyên ngành', owner: 'Trần Thu Hà', type: 'PDF', size: '26 KB', uploadedAt: '30/09/2026', status: 'complete' },
 ]
 
 const viewTitles = {

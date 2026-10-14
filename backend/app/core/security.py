@@ -1,5 +1,6 @@
-"""Reusable password hashing helpers."""
+"""Reusable password hashing and access-token helpers."""
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -19,6 +20,14 @@ class AccessTokenError(ValueError):
 
 class JWTConfigurationError(RuntimeError):
     """Raised when JWT signing is not configured securely."""
+
+
+@dataclass(frozen=True, slots=True)
+class AccessTokenClaims:
+    """Validated identity and revocation claims from an access token."""
+
+    user_id: int
+    token_version: int
 
 
 def hash_password(password: str) -> str:
@@ -45,11 +54,17 @@ def _get_jwt_settings() -> Settings:
     return settings
 
 
-def create_access_token(user_id: int) -> str:
-    """Create a signed access token for a positive user identifier."""
+def create_access_token(user_id: int, token_version: int) -> str:
+    """Create a signed access token for a user and token version."""
 
     if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
         raise ValueError("user_id must be a positive integer.")
+    if (
+        isinstance(token_version, bool)
+        or not isinstance(token_version, int)
+        or token_version < 0
+    ):
+        raise ValueError("token_version must be a non-negative integer.")
 
     settings = _get_jwt_settings()
     issued_at = datetime.now(timezone.utc)
@@ -61,6 +76,9 @@ def create_access_token(user_id: int) -> str:
         "iat": issued_at,
         "exp": expires_at,
         "type": "access",
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "ver": token_version,
     }
 
     return jwt.encode(
@@ -70,8 +88,8 @@ def create_access_token(user_id: int) -> str:
     )
 
 
-def decode_access_token(token: str) -> int:
-    """Validate an access token and return its positive user identifier."""
+def decode_access_token(token: str) -> AccessTokenClaims:
+    """Validate an access token and return its trusted identity claims."""
 
     settings = _get_jwt_settings()
     try:
@@ -79,11 +97,16 @@ def decode_access_token(token: str) -> int:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
             options={
-                "require": ["sub", "exp", "iat", "type"],
+                "require": ["sub", "exp", "iat", "type", "iss", "aud", "ver"],
                 "verify_signature": True,
                 "verify_exp": True,
                 "verify_iat": True,
+                "verify_iss": True,
+                "verify_aud": True,
+                "strict_aud": True,
             },
         )
     except jwt.InvalidTokenError:
@@ -104,4 +127,15 @@ def decode_access_token(token: str) -> int:
     if user_id <= 0 or str(user_id) != subject:
         raise AccessTokenError("Access token is invalid or expired.")
 
-    return user_id
+    token_version = payload.get("ver")
+    if (
+        isinstance(token_version, bool)
+        or not isinstance(token_version, int)
+        or token_version < 0
+    ):
+        raise AccessTokenError("Access token is invalid or expired.")
+
+    return AccessTokenClaims(
+        user_id=user_id,
+        token_version=token_version,
+    )

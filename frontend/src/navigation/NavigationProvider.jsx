@@ -1,37 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavigationContext } from './NavigationContext'
+import {
+  createLocationSnapshot,
+  navigateBrowserLocation,
+  subscribeToBrowserLocation,
+} from './location'
 
-function normalizePath(pathname) {
-  const normalized = pathname.replace(/\/+$/, '')
-  return normalized || '/'
+function readBrowserLocation() {
+  return createLocationSnapshot(window.location)
 }
 
 export function NavigationProvider({ children }) {
-  const [currentPath, setCurrentPath] = useState(() => (
-    normalizePath(window.location.pathname)
-  ))
+  const [location, setLocation] = useState(readBrowserLocation)
 
   const navigate = useCallback((destination, { replace = false } = {}) => {
-    const url = new URL(destination, window.location.href)
-
-    if (url.origin !== window.location.origin) {
-      throw new TypeError('Điều hướng nội bộ không hỗ trợ URL khác origin.')
-    }
-
-    const nextLocation = `${url.pathname}${url.search}${url.hash}`
-    const historyMethod = replace ? 'replaceState' : 'pushState'
-    window.history[historyMethod](null, '', nextLocation)
-    setCurrentPath(normalizePath(url.pathname))
+    const result = navigateBrowserLocation(window, destination, { replace })
+    if (result.changed) setLocation(result.location)
   }, [])
 
-  useEffect(() => {
-    const handlePopState = () => {
-      setCurrentPath(normalizePath(window.location.pathname))
-    }
-
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
-  }, [])
+  useEffect(() => subscribeToBrowserLocation(window, setLocation), [])
 
   useEffect(() => {
     const handleInternalLink = (event) => {
@@ -64,7 +51,13 @@ export function NavigationProvider({ children }) {
     return () => document.removeEventListener('click', handleInternalLink)
   }, [navigate])
 
-  const value = useMemo(() => ({ currentPath, navigate }), [currentPath, navigate])
+  const value = useMemo(() => ({
+    currentPath: location.pathname,
+    currentSearch: location.search,
+    currentHash: location.hash,
+    location,
+    navigate,
+  }), [location, navigate])
 
   return (
     <NavigationContext.Provider value={value}>

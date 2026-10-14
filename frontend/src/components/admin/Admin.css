@@ -121,7 +121,6 @@
 .admin-document-cell__icon { display: grid; width: 37px; height: 41px; flex: 0 0 37px; place-items: center; border-radius: 9px; }
 .admin-document-cell__icon--pdf { color: #c95050; background: #fff0f0; }
 .admin-document-cell__icon--docx { color: #3769c5; background: #edf4ff; }
-.admin-document-cell__icon--txt { color: #278377; background: #eaf8f5; }
 .admin-role, .admin-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 99px; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .admin-role--student { color: #41669f; background: #edf3fc; }
 .admin-role--admin { color: #7653a8; background: #f2edfa; }

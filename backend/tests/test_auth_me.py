@@ -6,6 +6,7 @@ import jwt
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
+from app.core.security import create_access_token
 
 
 def test_auth_me_returns_current_user_without_password_hash(
@@ -67,6 +68,9 @@ def test_auth_me_with_expired_token_returns_401(
             "iat": now - timedelta(minutes=31),
             "exp": now - timedelta(minutes=1),
             "type": "access",
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
+            "ver": 0,
         },
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
@@ -110,6 +114,24 @@ def test_auth_me_rejects_inactive_user(
     response = client.get(
         "/auth/me",
         headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_auth_me_rejects_mismatched_token_version(
+    client,
+    override_db,
+    fake_session_factory,
+    user_factory,
+) -> None:
+    current_user = user_factory(token_version=3)
+    old_token = create_access_token(current_user.id, 2)
+    override_db(fake_session_factory(get_result=current_user))
+
+    response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {old_token}"},
     )
 
     assert response.status_code == 401

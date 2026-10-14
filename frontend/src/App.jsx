@@ -23,7 +23,12 @@ import './ui-polish.css'
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const { isAuthenticated, isLoading, user } = useAuth()
-  const { currentPath, navigate } = useNavigation()
+  const {
+    currentHash,
+    currentPath,
+    currentSearch,
+    navigate,
+  } = useNavigation()
   const isKnownRoute = knownRoutes.has(currentPath)
   const isPublicRoute = publicRoutes.has(currentPath)
   const isAdminRoute = adminRoutes.has(currentPath)
@@ -31,6 +36,8 @@ function App() {
   useEffect(() => {
     const redirectPath = getRouteRedirect({
       currentPath,
+      currentSearch,
+      currentHash,
       isAuthenticated,
       isLoading,
       role: user?.role,
@@ -41,6 +48,8 @@ function App() {
     }
   }, [
     currentPath,
+    currentSearch,
+    currentHash,
     isAuthenticated,
     isLoading,
     navigate,

@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.main import app
 from app.routers.documents import get_file_storage
-from app.services.file_storage import FileStorage
+from app.services.file_storage import FileStorage, StorageIOError
 
 
 def make_pdf() -> bytes:
@@ -60,20 +60,13 @@ def stored_files(root: Path) -> list[Path]:
 @pytest.mark.parametrize(
     ("filename", "content", "client_mime", "expected_type", "expected_mime"),
     [
-        ("lecture.pdf", make_pdf(), "text/plain", "PDF", "application/pdf"),
+        ("lecture.pdf", make_pdf(), "application/pdf", "PDF", "application/pdf"),
         (
             "notes.docx",
             make_docx(),
-            "application/octet-stream",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "DOCX",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ),
-        (
-            "ghi-chu.txt",
-            "Nội dung học tập UTF-8".encode(),
-            "application/octet-stream",
-            "TXT",
-            "text/plain; charset=utf-8",
         ),
     ],
 )
@@ -126,7 +119,7 @@ def test_upload_requires_jwt(
 ) -> None:
     response = client.post(
         "/documents/upload",
-        files={"file": ("notes.txt", b"valid text", "text/plain")},
+        files={"file": ("notes.pdf", make_pdf(), "application/pdf")},
     )
 
     assert response.status_code == 401
@@ -140,7 +133,7 @@ def test_upload_rejects_invalid_jwt(
     response = client.post(
         "/documents/upload",
         headers=authorization_header("invalid-token"),
-        files={"file": ("notes.txt", b"valid text", "text/plain")},
+        files={"file": ("notes.pdf", make_pdf(), "application/pdf")},
     )
 
     assert response.status_code == 401
@@ -183,7 +176,63 @@ def test_upload_rejects_unsupported_extension(
         files={"file": ("malware.exe", b"not executable", "text/plain")},
     )
 
-    assert response.status_code == 415
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Chỉ hỗ trợ tải lên tệp PDF hoặc DOCX hợp lệ."
+    }
+    assert not stored_files(upload_storage[1])
+
+
+def test_upload_rejects_new_txt_document(
+    client: TestClient,
+    override_db: Callable,
+    fake_session_factory: type,
+    active_user: object,
+    access_token: str,
+    upload_storage: tuple[FileStorage, Path],
+) -> None:
+    override_db(fake_session_factory(get_result=active_user))
+
+    response = client.post(
+        "/documents/upload",
+        headers=authorization_header(access_token),
+        files={"file": ("notes.txt", b"valid UTF-8 text", "text/plain")},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Chỉ hỗ trợ tải lên tệp PDF hoặc DOCX hợp lệ."
+    }
+    assert not stored_files(upload_storage[1])
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "wrong_mime"),
+    [
+        ("lecture.pdf", make_pdf(), "text/plain"),
+        ("notes.docx", make_docx(), "application/octet-stream"),
+    ],
+)
+def test_upload_rejects_mismatched_mime_type(
+    client: TestClient,
+    override_db: Callable,
+    fake_session_factory: type,
+    active_user: object,
+    access_token: str,
+    upload_storage: tuple[FileStorage, Path],
+    filename: str,
+    content: bytes,
+    wrong_mime: str,
+) -> None:
+    override_db(fake_session_factory(get_result=active_user))
+
+    response = client.post(
+        "/documents/upload",
+        headers=authorization_header(access_token),
+        files={"file": (filename, content, wrong_mime)},
+    )
+
+    assert response.status_code == 400
     assert not stored_files(upload_storage[1])
 
 
@@ -200,7 +249,7 @@ def test_upload_rejects_empty_file(
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": ("empty.txt", b"", "text/plain")},
+        files={"file": ("empty.pdf", b"", "application/pdf")},
     )
 
     assert response.status_code == 400
@@ -221,7 +270,13 @@ def test_upload_rejects_oversized_file(
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": ("large.txt", b"x" * (256 * 1024 + 1), "text/plain")},
+        files={
+            "file": (
+                "large.pdf",
+                b"x" * (256 * 1024 + 1),
+                "application/pdf",
+            )
+        },
     )
 
     assert response.status_code == 413
@@ -229,11 +284,14 @@ def test_upload_rejects_oversized_file(
 
 
 @pytest.mark.parametrize(
-    ("filename", "content"),
+    ("filename", "content", "client_mime"),
     [
-        ("fake.pdf", b"This is not a PDF"),
-        ("fake.docx", b"This is not a ZIP archive"),
-        ("fake.txt", b"\x00\xff\x00binary"),
+        ("fake.pdf", b"This is not a PDF", "application/pdf"),
+        (
+            "fake.docx",
+            b"This is not a ZIP archive",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
     ],
 )
 def test_upload_rejects_spoofed_content(
@@ -245,13 +303,14 @@ def test_upload_rejects_spoofed_content(
     upload_storage: tuple[FileStorage, Path],
     filename: str,
     content: bytes,
+    client_mime: str,
 ) -> None:
     override_db(fake_session_factory(get_result=active_user))
 
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": (filename, content, "application/octet-stream")},
+        files={"file": (filename, content, client_mime)},
     )
 
     assert response.status_code == 400
@@ -262,9 +321,9 @@ def test_upload_rejects_spoofed_content(
     ("filename", "title", "expected_status"),
     [
         ("", None, 422),
-        (f"{'a' * 252}.txt", None, 400),
-        ("notes.txt", "   ", 400),
-        ("notes.txt", "a" * 256, 400),
+        (f"{'a' * 252}.pdf", None, 400),
+        ("notes.pdf", "   ", 400),
+        ("notes.pdf", "a" * 256, 400),
     ],
 )
 def test_upload_rejects_invalid_filename_or_title(
@@ -284,7 +343,7 @@ def test_upload_rejects_invalid_filename_or_title(
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": (filename, b"valid text", "text/plain")},
+        files={"file": (filename, make_pdf(), "application/pdf")},
         data=data,
     )
 
@@ -306,7 +365,7 @@ def test_upload_rejects_inactive_account(
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": ("notes.txt", b"valid text", "text/plain")},
+        files={"file": ("notes.pdf", make_pdf(), "application/pdf")},
     )
 
     assert response.status_code == 401
@@ -329,18 +388,18 @@ def test_upload_normalizes_filename_and_ignores_client_user_id(
         headers=authorization_header(access_token),
         files={
             "file": (
-                r"C:\fakepath\ghi-chu.txt",
-                "Nội dung".encode(),
-                "application/x-client-guess",
+                r"C:\fakepath\bai-giang.pdf",
+                make_pdf(),
+                "application/pdf",
             )
         },
         data={"user_id": "999999"},
     )
 
     assert response.status_code == 201
-    assert response.json()["original_filename"] == "ghi-chu.txt"
-    assert response.json()["title"] == "ghi-chu"
-    assert response.json()["mime_type"] == "text/plain; charset=utf-8"
+    assert response.json()["original_filename"] == "bai-giang.pdf"
+    assert response.json()["title"] == "bai-giang"
+    assert response.json()["mime_type"] == "application/pdf"
     assert session.added.user_id == active_user.id
     assert session.added.user_id != 999999
 
@@ -365,12 +424,60 @@ def test_database_error_rolls_back_and_removes_file(
     response = client.post(
         "/documents/upload",
         headers=authorization_header(access_token),
-        files={"file": ("notes.txt", b"valid text", "text/plain")},
+        files={"file": ("notes.pdf", make_pdf(), "application/pdf")},
     )
 
     assert response.status_code == 500
     assert session.rollback_called is True
     assert not stored_files(upload_storage[1])
+
+
+def test_cleanup_failure_log_redacts_sensitive_upload_details(
+    client: TestClient,
+    override_db: Callable,
+    fake_session_factory: type,
+    active_user: object,
+    access_token: str,
+    upload_storage: tuple[FileStorage, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = fake_session_factory(get_result=active_user)
+    sensitive_exception = "sensitive-delete-error-at-C:/private/documents"
+    deleted_keys: list[str] = []
+
+    def fail_flush() -> None:
+        raise SQLAlchemyError("simulated database failure")
+
+    def fail_delete(storage_key: str) -> bool:
+        deleted_keys.append(storage_key)
+        raise StorageIOError(sensitive_exception)
+
+    monkeypatch.setattr(session, "flush", fail_flush)
+    monkeypatch.setattr(upload_storage[0], "delete", fail_delete)
+    override_db(session)
+    caplog.set_level("ERROR", logger="app.services.document_service")
+
+    response = client.post(
+        "/documents/upload",
+        headers=authorization_header(access_token),
+        files={"file": ("notes.pdf", make_pdf(), "application/pdf")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "Không thể lưu tài liệu lúc này."
+    }
+    assert session.rollback_called is True
+    assert len(deleted_keys) == 1
+    assert "event=document_upload_cleanup_failed" in caplog.text
+    assert deleted_keys[0] not in caplog.text
+    assert str(active_user.id) not in "\n".join(
+        record.getMessage() for record in caplog.records
+    )
+    assert str(upload_storage[1]) not in caplog.text
+    assert sensitive_exception not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 def test_upload_rejects_high_compression_docx(

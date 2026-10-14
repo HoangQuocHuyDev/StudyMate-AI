@@ -11,14 +11,15 @@ const navigation = [
 ]
 
 function Sidebar({ isOpen, onClose }) {
-  const { logout } = useAuth()
+  const { isLoggingOut, logoutWithRevocation } = useAuth()
   const { currentPath, navigate } = useNavigation()
   const isSettingsActive = currentPath === '/settings'
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (isLoggingOut) return
     onClose()
-    logout()
-    navigate('/login', { replace: true })
+    const sessionWasCleared = await logoutWithRevocation()
+    if (sessionWasCleared) navigate('/login', { replace: true })
   }
 
   return (
@@ -46,7 +47,7 @@ function Sidebar({ isOpen, onClose }) {
 
       <div className="sidebar__bottom">
         <a className={`nav-item ${isSettingsActive ? 'nav-item--active' : ''}`} href="/settings" onClick={onClose} aria-current={isSettingsActive ? 'page' : undefined}><Icon name="settings" /><span>Cài đặt</span></a>
-        <button className="nav-item" type="button" onClick={handleLogout}><Icon name="logout" /><span>Đăng xuất</span></button>
+        <button className="nav-item" type="button" onClick={handleLogout} disabled={isLoggingOut}><Icon name="logout" /><span>{isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}</span></button>
       </div>
     </aside>
   )

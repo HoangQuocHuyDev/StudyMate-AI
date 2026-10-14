@@ -1,8 +1,7 @@
-"""Validation and persistence services for document uploads."""
+"""Validation, persistence, and query services for documents."""
 
 from __future__ import annotations
 
-import codecs
 import logging
 import stat
 from dataclasses import dataclass
@@ -10,10 +9,12 @@ from pathlib import PurePosixPath
 from typing import BinaryIO
 from zipfile import BadZipFile, ZipFile
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
+from app.services.document_deletion import document_not_being_deleted
 from app.services.file_storage import (
     EmptyFileError,
     FileSizeLimitExceededError,
@@ -24,20 +25,18 @@ from app.services.file_storage import (
 
 logger = logging.getLogger(__name__)
 
-VALIDATION_CHUNK_SIZE = 64 * 1024
 MAX_DOCX_ENTRIES = 1_000
 MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 100
 REQUIRED_DOCX_ENTRIES = frozenset(
     {"[Content_Types].xml", "_rels/.rels", "word/document.xml"}
 )
-FILE_TYPES = {
+UPLOAD_FILE_TYPES = {
     "pdf": ("PDF", "application/pdf"),
     "docx": (
         "DOCX",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ),
-    "txt": ("TXT", "text/plain; charset=utf-8"),
 }
 
 
@@ -73,6 +72,14 @@ class DocumentPersistenceError(DocumentUploadError):
     """Raised when document metadata cannot be persisted."""
 
 
+class DocumentQueryError(Exception):
+    """Raised when document metadata cannot be queried safely."""
+
+
+class OwnedDocumentNotFoundError(DocumentQueryError):
+    """Raised when a document is absent or not owned by the caller."""
+
+
 @dataclass(frozen=True, slots=True)
 class ValidatedDocument:
     """Normalized metadata established by server-side validation."""
@@ -84,10 +91,107 @@ class ValidatedDocument:
     file_size: int
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentListResult:
+    """One page of document metadata and its filtered total."""
+
+    items: list[Document]
+    total: int
+
+
+def list_documents(
+    db: Session,
+    *,
+    user_id: int,
+    page: int,
+    page_size: int,
+    search: str | None = None,
+    file_type: str | None = None,
+) -> DocumentListResult:
+    """Return one stable, owner-scoped page without reading stored files."""
+
+    filters = [
+        Document.user_id == user_id,
+        document_not_being_deleted(Document.id),
+    ]
+    normalized_search = search.strip() if search is not None else ""
+    if normalized_search:
+        escaped_search = _escape_like_literal(normalized_search)
+        filters.append(
+            Document.title.ilike(f"%{escaped_search}%", escape="\\")
+        )
+    if file_type is not None:
+        filters.append(Document.file_type == file_type)
+
+    count_statement = (
+        select(func.count())
+        .select_from(Document)
+        .where(*filters)
+    )
+    page_statement = (
+        select(Document)
+        .where(*filters)
+        .order_by(Document.created_at.desc(), Document.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    try:
+        total = db.scalar(count_statement) or 0
+        items = list(db.scalars(page_statement).all())
+    except SQLAlchemyError as exc:
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.error("Database rollback failed after document query error.")
+        raise DocumentQueryError("Could not query document metadata.") from exc
+
+    return DocumentListResult(items=items, total=total)
+
+
+def get_owned_document(
+    db: Session,
+    *,
+    document_id: int,
+    user_id: int,
+) -> Document:
+    """Return one document only when it belongs to the authenticated owner."""
+
+    if (
+        isinstance(document_id, bool)
+        or not isinstance(document_id, int)
+        or document_id <= 0
+        or isinstance(user_id, bool)
+        or not isinstance(user_id, int)
+        or user_id <= 0
+    ):
+        raise OwnedDocumentNotFoundError("Document was not found.")
+
+    try:
+        document = db.scalar(
+            select(Document).where(
+                Document.id == document_id,
+                Document.user_id == user_id,
+                document_not_being_deleted(Document.id),
+            )
+        )
+    except SQLAlchemyError:
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.error("Database rollback failed after document query error.")
+        raise DocumentQueryError("Could not query document metadata.") from None
+
+    if document is None:
+        raise OwnedDocumentNotFoundError("Document was not found.")
+    return document
+
+
 def validate_document(
     stream: BinaryIO,
     *,
     filename: str | None,
+    content_type: str | None,
     title: str | None,
     max_file_size: int,
 ) -> ValidatedDocument:
@@ -96,7 +200,8 @@ def validate_document(
     original_filename = _normalize_filename(filename)
     normalized_title = _normalize_title(title, original_filename)
     extension = _get_extension(original_filename)
-    file_type, mime_type = FILE_TYPES[extension]
+    file_type, mime_type = UPLOAD_FILE_TYPES[extension]
+    _validate_content_type(content_type, expected=mime_type)
     file_size = _get_stream_size(stream)
 
     if file_size == 0:
@@ -109,8 +214,6 @@ def validate_document(
             _validate_pdf(stream, file_size)
         elif extension == "docx":
             _validate_docx(stream)
-        else:
-            _validate_txt(stream)
     finally:
         _rewind(stream)
 
@@ -129,6 +232,7 @@ def create_document(
     stream: BinaryIO,
     *,
     filename: str | None,
+    content_type: str | None,
     title: str | None,
     user_id: int,
 ) -> Document:
@@ -137,6 +241,7 @@ def create_document(
     validated = validate_document(
         stream,
         filename=filename,
+        content_type=content_type,
         title=title,
         max_file_size=storage.max_file_size,
     )
@@ -153,7 +258,7 @@ def create_document(
         raise DocumentStorageError("Could not store document bytes.") from exc
 
     if stored_file.size != validated.file_size:
-        _compensate_file(storage, stored_file.storage_key, user_id)
+        _compensate_file(storage, stored_file.storage_key)
         raise DocumentStorageError("The stored document size changed unexpectedly.")
 
     document = Document(
@@ -177,12 +282,18 @@ def create_document(
             db.rollback()
         except SQLAlchemyError:
             logger.error("Database rollback failed after document upload error.")
-        _compensate_file(storage, stored_file.storage_key, user_id)
+        _compensate_file(storage, stored_file.storage_key)
         raise DocumentPersistenceError(
             "Could not persist document metadata."
         ) from exc
 
     return document
+
+
+def _escape_like_literal(value: str) -> str:
+    """Escape SQL LIKE metacharacters so search text stays literal."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _normalize_filename(filename: str | None) -> str:
@@ -222,9 +333,17 @@ def _get_extension(filename: str) -> str:
     if "." not in filename:
         raise UnsupportedDocumentTypeError("The file type is not supported.")
     extension = filename.rsplit(".", 1)[-1].lower()
-    if extension not in FILE_TYPES:
+    if extension not in UPLOAD_FILE_TYPES:
         raise UnsupportedDocumentTypeError("The file type is not supported.")
     return extension
+
+
+def _validate_content_type(content_type: str | None, *, expected: str) -> None:
+    if not isinstance(content_type, str):
+        raise UnsupportedDocumentTypeError("The content type is not supported.")
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    if normalized != expected:
+        raise UnsupportedDocumentTypeError("The content type is not supported.")
 
 
 def _get_stream_size(stream: BinaryIO) -> int:
@@ -329,44 +448,11 @@ def _validate_docx_entry(name: str, external_attr: int) -> None:
         raise InvalidDocumentContentError("The DOCX archive contains unsafe paths.")
 
 
-def _validate_txt(stream: BinaryIO) -> None:
-    decoder = codecs.getincrementaldecoder("utf-8")("strict")
-    control_bytes = 0
-    total_bytes = 0
-    try:
-        stream.seek(0)
-        while True:
-            chunk = stream.read(VALIDATION_CHUNK_SIZE)
-            if not chunk:
-                break
-            if not isinstance(chunk, bytes):
-                raise InvalidDocumentContentError("The TXT stream is not binary.")
-            if b"\x00" in chunk:
-                raise InvalidDocumentContentError("The TXT file contains binary data.")
-            control_bytes += sum(
-                byte < 32 and byte not in {9, 10, 13} for byte in chunk
-            )
-            total_bytes += len(chunk)
-            decoder.decode(chunk, final=False)
-        decoder.decode(b"", final=True)
-    except UnicodeDecodeError as exc:
-        raise InvalidDocumentContentError("The TXT file is not valid UTF-8.") from exc
-    except (OSError, TypeError, ValueError) as exc:
-        raise InvalidDocumentContentError("The TXT file cannot be inspected.") from exc
-
-    if control_bytes / max(total_bytes, 1) > 0.05:
-        raise InvalidDocumentContentError("The TXT file contains binary data.")
-
-
 def _compensate_file(
     storage: FileStorage,
     storage_key: str,
-    user_id: int,
 ) -> None:
     try:
         storage.delete(storage_key)
     except FileStorageError:
-        logger.error(
-            "Compensating delete failed; an orphaned document file may remain.",
-            extra={"storage_key": storage_key, "user_id": user_id},
-        )
+        logger.error("event=document_upload_cleanup_failed")

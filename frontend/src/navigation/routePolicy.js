@@ -14,6 +14,34 @@ export const knownRoutes = new Set([
   ...adminRoutes,
 ])
 
+export function buildLoginRedirect({
+  currentPath,
+  currentSearch = '',
+  currentHash = '',
+}) {
+  const returnTo = `${currentPath}${currentSearch}${currentHash}`
+  const params = new URLSearchParams({ return_to: returnTo })
+  return `/login?${params.toString()}`
+}
+
+export function getPostLoginRoute({ currentSearch = '', role }) {
+  const fallback = role === 'ADMIN' ? '/admin' : '/'
+  const returnTo = new URLSearchParams(currentSearch).get('return_to')
+  if (
+    !returnTo
+    || !returnTo.startsWith('/')
+    || returnTo.startsWith('//')
+    || returnTo.includes('\\')
+  ) return fallback
+
+  const url = new URL(returnTo, 'https://studymate.local')
+  if (url.origin !== 'https://studymate.local') return fallback
+  if (!knownRoutes.has(url.pathname) || publicRoutes.has(url.pathname)) return fallback
+  if (adminRoutes.has(url.pathname) && role !== 'ADMIN') return fallback
+
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
 export function getHomeRoute({ isAuthenticated, role }) {
   if (!isAuthenticated) return '/login'
   return role === 'ADMIN' ? '/admin' : '/'
@@ -21,6 +49,8 @@ export function getHomeRoute({ isAuthenticated, role }) {
 
 export function getRouteRedirect({
   currentPath,
+  currentSearch = '',
+  currentHash = '',
   isAuthenticated,
   isLoading,
   role,
@@ -31,11 +61,11 @@ export function getRouteRedirect({
   const isPublicRoute = publicRoutes.has(currentPath)
 
   if (isPublicRoute && isAuthenticated) {
-    return getHomeRoute({ isAuthenticated, role })
+    return getPostLoginRoute({ currentSearch, role })
   }
 
   if (!isPublicRoute && !isAuthenticated) {
-    return '/login'
+    return buildLoginRedirect({ currentPath, currentSearch, currentHash })
   }
 
   if (adminRoutes.has(currentPath) && role !== 'ADMIN') {

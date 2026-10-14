@@ -9,13 +9,14 @@ const items = [
 ]
 
 function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
-  const { logout } = useAuth()
+  const { isLoggingOut, logoutWithRevocation } = useAuth()
   const { navigate } = useNavigation()
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (isLoggingOut) return
     onClose()
-    logout()
-    navigate('/login', { replace: true })
+    const sessionWasCleared = await logoutWithRevocation()
+    if (sessionWasCleared) navigate('/login', { replace: true })
   }
 
   return (
@@ -37,7 +38,7 @@ function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
 
       <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Dữ liệu minh họa</strong><span>Quyền giao diện được xác minh qua tài khoản hiện tại.</span></p></div>
       <a className="admin-back-link" href="/"><Icon name="arrow" size={17} />Về giao diện sinh viên</a>
-      <button className="admin-back-link admin-logout-button" type="button" onClick={handleLogout}><Icon name="logout" size={17} />Đăng xuất</button>
+      <button className="admin-back-link admin-logout-button" type="button" onClick={handleLogout} disabled={isLoggingOut}><Icon name="logout" size={17} />{isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}</button>
     </aside>
   )
 }

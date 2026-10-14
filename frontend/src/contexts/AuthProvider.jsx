@@ -13,8 +13,10 @@ import {
 import {
   getCurrentUser,
   InvalidCurrentUserResponseError,
+  logout as requestLogout,
 } from '../services/authService'
 import { AuthContext, AuthSessionError } from './AuthContext'
+import { createLogoutController } from './authLogout'
 
 const emptySession = Object.freeze({ accessToken: null, user: null })
 
@@ -45,19 +47,54 @@ function getSessionErrorMessage(error) {
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(emptySession)
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [error, setError] = useState(null)
   const requestVersion = useRef(0)
+  const sessionRef = useRef({ ...emptySession, version: 0 })
+  const isMounted = useRef(true)
 
-  useEffect(() => () => {
+  const clearLocalSession = useCallback(() => {
     requestVersion.current += 1
-  }, [])
-
-  const logout = useCallback(() => {
-    requestVersion.current += 1
+    sessionRef.current = {
+      ...emptySession,
+      version: requestVersion.current,
+    }
     setSession(emptySession)
     setIsLoading(false)
+    setIsLoggingOut(false)
     setError(null)
   }, [])
+
+  const [logoutController] = useState(() => createLogoutController(requestLogout))
+
+  const logoutWithRevocation = useCallback(
+    () => logoutController.logout({
+      getSession: () => sessionRef.current,
+      clearSession: clearLocalSession,
+      setPending: (pending) => {
+        if (isMounted.current) setIsLoggingOut(pending)
+      },
+    }),
+    [clearLocalSession, logoutController],
+  )
+
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+      requestVersion.current += 1
+      sessionRef.current = {
+        ...emptySession,
+        version: requestVersion.current,
+      }
+      logoutController.cancel()
+    }
+  }, [logoutController])
+
+  const logout = useCallback(() => {
+    logoutController.cancel()
+    clearLocalSession()
+  }, [clearLocalSession, logoutController])
 
   const loginSession = useCallback(async (accessToken) => {
     if (typeof accessToken !== 'string' || !accessToken.trim()) {
@@ -69,7 +106,13 @@ export function AuthProvider({ children }) {
 
     const currentRequest = requestVersion.current + 1
     requestVersion.current = currentRequest
+    logoutController.cancel()
+    sessionRef.current = {
+      ...emptySession,
+      version: currentRequest,
+    }
     setSession(emptySession)
+    setIsLoggingOut(false)
     setError(null)
     setIsLoading(true)
 
@@ -78,13 +121,19 @@ export function AuthProvider({ children }) {
 
       if (requestVersion.current !== currentRequest) return null
 
-      setSession({ accessToken, user })
+      const nextSession = { accessToken, user }
+      sessionRef.current = { ...nextSession, version: currentRequest }
+      setSession(nextSession)
       return user
     } catch (requestError) {
       if (requestVersion.current !== currentRequest) return null
 
       const message = getSessionErrorMessage(requestError)
       setSession(emptySession)
+      sessionRef.current = {
+        ...emptySession,
+        version: currentRequest,
+      }
       setError(message)
       throw new AuthSessionError(message, { cause: requestError })
     } finally {
@@ -92,17 +141,27 @@ export function AuthProvider({ children }) {
         setIsLoading(false)
       }
     }
-  }, [logout])
+  }, [logout, logoutController])
 
   const value = useMemo(() => ({
     accessToken: session.accessToken,
     user: session.user,
     isAuthenticated: Boolean(session.accessToken && session.user),
     isLoading,
+    isLoggingOut,
     error,
     loginSession,
     logout,
-  }), [error, isLoading, loginSession, logout, session])
+    logoutWithRevocation,
+  }), [
+    error,
+    isLoading,
+    isLoggingOut,
+    loginSession,
+    logout,
+    logoutWithRevocation,
+    session,
+  ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

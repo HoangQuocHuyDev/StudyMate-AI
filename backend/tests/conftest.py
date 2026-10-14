@@ -1,13 +1,16 @@
-"""Shared fixtures for isolated authentication tests."""
+"""Shared fixtures and safeguards for isolated backend tests."""
 
 import os
+import sqlite3
 from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import Pool
 
 
 # These values must be set before importing the application. Disabling dotenv
@@ -27,10 +30,42 @@ os.environ["CORS_ORIGINS"] = (
 )
 
 
+@event.listens_for(Pool, "connect")
+def register_postgresql_text_functions_for_sqlite(
+    dbapi_connection: object,
+    connection_record: object,
+) -> None:
+    """Provide PostgreSQL text functions used by CHECK constraints in SQLite tests.
+
+    Production constraints intentionally use PostgreSQL's ``btrim`` and
+    ``char_length`` functions. Registering their equivalents once for every
+    SQLite test connection keeps model metadata faithful to PostgreSQL without
+    duplicating per-fixture compatibility listeners.
+    """
+
+    del connection_record
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+
+    dbapi_connection.create_function(
+        "btrim",
+        1,
+        lambda value: value.strip() if value is not None else None,
+    )
+    dbapi_connection.create_function(
+        "char_length",
+        1,
+        lambda value: len(value) if value is not None else None,
+    )
+
+
 from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db.session import engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.services.auth_rate_limiter import (  # noqa: E402
+    get_authentication_rate_limiter,
+)
 
 
 class FakeSession:
@@ -95,6 +130,16 @@ def block_real_database_connections(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(engine, "connect", blocked_connect)
 
 
+@pytest.fixture(autouse=True)
+def reset_authentication_rate_limiter() -> Iterator[None]:
+    """Prevent process-local limiter state from leaking across tests."""
+
+    limiter = get_authentication_rate_limiter()
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     with TestClient(app) as test_client:
@@ -144,6 +189,7 @@ def user_factory(
         username: str = "test_user",
         role: str = "USER",
         is_active: bool = True,
+        token_version: int = 0,
     ) -> User:
         return User(
             id=user_id,
@@ -152,6 +198,7 @@ def user_factory(
             password_hash=stored_password_hash,
             role=role,
             is_active=is_active,
+            token_version=token_version,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -165,4 +212,4 @@ def active_user(user_factory: Callable[..., User]) -> User:
 
 @pytest.fixture
 def access_token(active_user: User) -> str:
-    return create_access_token(active_user.id)
+    return create_access_token(active_user.id, active_user.token_version)

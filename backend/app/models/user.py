@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Identity,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -34,6 +35,10 @@ class User(Base):
             "role IN ('USER', 'ADMIN')",
             name="ck_users_role",
         ),
+        CheckConstraint(
+            "token_version >= 0",
+            name="ck_users_token_version_nonnegative",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -53,6 +58,12 @@ class User(Base):
         Boolean,
         nullable=False,
         server_default=true(),
+    )
+    token_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

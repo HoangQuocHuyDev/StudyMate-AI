@@ -1,5 +1,7 @@
 """Tests for POST /auth/login."""
 
+from app.core.security import decode_access_token
+
 
 def test_login_success_returns_bearer_token(
     client,
@@ -19,6 +21,9 @@ def test_login_success_returns_bearer_token(
     assert response.json()["token_type"] == "bearer"
     assert response.json()["access_token"]
     assert "password_hash" not in response.json()
+    claims = decode_access_token(response.json()["access_token"])
+    assert claims.user_id == active_user.id
+    assert claims.token_version == active_user.token_version
 
 
 def test_unknown_username_and_wrong_password_share_generic_401(

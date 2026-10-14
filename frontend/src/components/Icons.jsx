@@ -9,6 +9,7 @@ const paths = {
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   close: <path d="m6 6 12 12M18 6 6 18" />,
   upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" /></>,
+  download: <><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 19h16" /></>,
   sparkle: <path d="m12 3-1.2 3.3a7 7 0 0 1-4.3 4.3L3 12l3.5 1.3a7 7 0 0 1 4.3 4.3L12 21l1.2-3.4a7 7 0 0 1 4.3-4.3L21 12l-3.5-1.4a7 7 0 0 1-4.3-4.3Z" />,
   library: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" /></>,
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,

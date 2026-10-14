@@ -30,3 +30,6 @@ Thumbs.db
 
 # Runtime document storage
 backend/storage/
+
+# Pytest temporary files
+.pytest_tmp/

@@ -6,6 +6,8 @@ import os
 import re
 import stat
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO
@@ -172,6 +174,55 @@ class FileStorage:
         except OSError as exc:
             raise StorageIOError("Could not delete stored file.") from exc
         return True
+
+    @contextmanager
+    def open_binary(self, storage_key: str) -> Iterator[BinaryIO]:
+        """Open one stored regular file read-only without following symlinks."""
+
+        source = self._path_for_key(storage_key)
+        self._assert_safe_existing_path(source)
+
+        try:
+            path_status = source.lstat()
+        except FileNotFoundError as exc:
+            raise StorageIOError("Stored file is unavailable.") from exc
+        except OSError as exc:
+            raise StorageIOError("Could not inspect stored file.") from exc
+
+        if stat.S_ISLNK(path_status.st_mode) or not stat.S_ISREG(
+            path_status.st_mode
+        ):
+            raise InvalidStorageKeyError("Storage key does not identify a file.")
+
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            file_descriptor = os.open(source, flags)
+        except FileNotFoundError as exc:
+            raise StorageIOError("Stored file is unavailable.") from exc
+        except OSError as exc:
+            raise StorageIOError("Could not open stored file.") from exc
+
+        try:
+            opened_status = os.fstat(file_descriptor)
+            if (
+                not stat.S_ISREG(opened_status.st_mode)
+                or opened_status.st_dev != path_status.st_dev
+                or opened_status.st_ino != path_status.st_ino
+            ):
+                raise InvalidStorageKeyError(
+                    "Stored file changed while it was being opened."
+                )
+            self._assert_contained(source)
+        except FileStorageError:
+            os.close(file_descriptor)
+            raise
+        except OSError as exc:
+            os.close(file_descriptor)
+            raise StorageIOError("Could not inspect opened file.") from exc
+
+        with os.fdopen(file_descriptor, "rb") as stream:
+            yield stream
 
     def _write_stream(self, file_descriptor: int, stream: BinaryIO) -> int:
         size = 0

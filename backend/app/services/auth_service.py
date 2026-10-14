@@ -1,6 +1,6 @@
 """Authentication-related application services."""
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,14 @@ class InvalidCredentialsError(Exception):
 
 class UserAuthenticationError(Exception):
     """Raised when authentication cannot be completed safely."""
+
+
+class StaleAccessTokenError(Exception):
+    """Raised when another request has already revoked this token version."""
+
+
+class TokenRevocationError(Exception):
+    """Raised when token revocation cannot be persisted safely."""
 
 
 def _is_username_unique_violation(error: IntegrityError) -> bool:
@@ -113,6 +121,35 @@ def authenticate_user(db: Session, credentials: UserLogin) -> str:
         raise InvalidCredentialsError
 
     try:
-        return create_access_token(user.id)
+        return create_access_token(user.id, user.token_version)
     except (JWTConfigurationError, ValueError) as error:
         raise UserAuthenticationError from error
+
+
+def revoke_access_token(
+    db: Session,
+    *,
+    user_id: int,
+    expected_token_version: int,
+) -> None:
+    """Atomically revoke every token issued at the expected user version."""
+
+    statement = (
+        update(User)
+        .where(
+            User.id == user_id,
+            User.token_version == expected_token_version,
+        )
+        .values(token_version=User.token_version + 1)
+    )
+    try:
+        result = db.execute(statement)
+        if result.rowcount != 1:
+            db.rollback()
+            raise StaleAccessTokenError
+        db.commit()
+    except StaleAccessTokenError:
+        raise
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise TokenRevocationError from error

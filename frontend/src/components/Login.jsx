@@ -7,6 +7,7 @@ import {
 } from '../services/apiClient'
 import { InvalidLoginResponseError, login } from '../services/authService'
 import { useNavigation } from '../navigation/NavigationContext'
+import { getPostLoginRoute } from '../navigation/routePolicy'
 import './Login.css'
 
 const usernamePattern = /^[A-Za-z0-9_]+$/
@@ -37,7 +38,7 @@ function EyeIcon({ hidden }) {
 
 function Login() {
   const { loginSession } = useAuth()
-  const { navigate } = useNavigation()
+  const { currentSearch, navigate } = useNavigation()
   const [form, setForm] = useState({ username: '', password: '', remember: false })
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
@@ -109,7 +110,10 @@ function Login() {
 
       setForm((current) => ({ ...current, password: '' }))
       setShowPassword(false)
-      navigate(verifiedUser.role === 'ADMIN' ? '/admin' : '/', { replace: true })
+      navigate(getPostLoginRoute({
+        currentSearch,
+        role: verifiedUser.role,
+      }), { replace: true })
     } catch (error) {
       if (requestVersion.current !== currentRequest) return
 
