@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useNavigation } from '../navigation/NavigationContext'
 import {
   askDocument,
   getChatCitation,
@@ -8,7 +9,11 @@ import {
   MAX_CHAT_QUESTION_LENGTH,
 } from '../services/chatService'
 import { ApiHttpError } from '../services/apiClient'
-import { getDocumentRagStatus, getDocuments } from '../services/documentService'
+import {
+  getDocumentDetail,
+  getDocumentRagStatus,
+  getDocuments,
+} from '../services/documentService'
 import { getUserInitials } from '../utils/userDisplay'
 import {
   buildChatStatusMessages,
@@ -34,6 +39,14 @@ import {
   validateCitationDetail,
 } from './chatCitationUi'
 import { AssistantMarkdown, PlainTextMessage } from './chatMarkdown'
+import {
+  buildChatDeepLinkUrl,
+  ChatDeepLinkError,
+  findSessionAcrossPages,
+  isChatDeepLinkRequestCurrent,
+  mergeDeepLinkedDocument,
+  parseChatDeepLink,
+} from './chatDeepLink'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -161,6 +174,8 @@ function TypingIndicator() {
 
 function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const { accessToken, logout, user } = useAuth()
+  const { currentSearch, navigate } = useNavigation()
+  const deepLink = useMemo(() => parseChatDeepLink(currentSearch), [currentSearch])
   const userInitials = getUserInitials(user)
   const [documents, setDocuments] = useState([])
   const [selectedDocumentId, setSelectedDocumentId] = useState(null)
@@ -199,8 +214,16 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     error: null,
     data: null,
   })
+  const [deepLinkState, setDeepLinkState] = useState({
+    loading: false,
+    error: null,
+    retryVersion: 0,
+  })
 
   const documentRequest = useRef({ version: 0, controller: null })
+  const deepLinkRequest = useRef({ version: 0, controller: null })
+  const skipDeepLinkSearch = useRef(null)
+  const skipNextSessionLoad = useRef(null)
   const documentsRef = useRef([])
   const sessionRequest = useRef({ version: 0, controller: null })
   const messageRequest = useRef({ version: 0, controller: null, loadingMore: false })
@@ -233,6 +256,14 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     if (error instanceof ApiHttpError && error.status === 401) logout()
     return getChatErrorMessage(error)
   }, [logout])
+
+  const navigateToChatSelection = useCallback((documentId, sessionId = null, options = {}) => {
+    const destination = buildChatDeepLinkUrl(documentId, sessionId)
+    const destinationSearch = new URL(destination, window.location.origin).search
+    if (destinationSearch === window.location.search) return
+    skipDeepLinkSearch.current = destinationSearch
+    navigate(destination, options)
+  }, [navigate])
 
   const closeCitationPanel = useCallback(() => {
     citationRequest.current.version += 1
@@ -278,7 +309,9 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     const nextId = chooseChatDocumentId(remaining, null)
     selectedDocumentIdRef.current = nextId
     setSelectedDocumentId(nextId)
-  }, [resetConversationState])
+    if (nextId) navigateToChatSelection(nextId, null, { replace: true })
+    else navigate('/chat', { replace: true })
+  }, [navigate, navigateToChatSelection, resetConversationState])
 
   const removeDeletedSession = useCallback((sessionId) => {
     setSessions((current) => current.filter((session) => session.id !== sessionId))
@@ -294,7 +327,14 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     setMessagesState({ loading: false, loadingMore: false, error: null })
     pendingScrollRestore.current = null
     closeCitationPanel()
-  }, [closeCitationPanel])
+    if (selectedDocumentIdRef.current) {
+      navigateToChatSelection(
+        selectedDocumentIdRef.current,
+        null,
+        { replace: true },
+      )
+    }
+  }, [closeCitationPanel, navigateToChatSelection])
 
   useEffect(() => {
     if (!isSidebarOpen) return undefined
@@ -417,12 +457,13 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   }, [accessToken, handleRequestError, resetConversationState])
 
   useEffect(() => {
+    if (deepLink.kind !== 'none') return undefined
     const timer = window.setTimeout(() => loadDocumentPage(1), 0)
     return () => {
       window.clearTimeout(timer)
       documentRequest.current.controller?.abort()
     }
-  }, [loadDocumentPage])
+  }, [deepLink.kind, loadDocumentPage])
 
   const loadSessions = useCallback(async (documentId, offset = 0, append = false) => {
     const version = sessionRequest.current.version + 1
@@ -526,13 +567,253 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     }
   }, [accessToken, handleRequestError, removeDeletedSession])
 
+  const restoreDeepLinkedConversation = useCallback(async (target) => {
+    const version = deepLinkRequest.current.version + 1
+    deepLinkRequest.current.controller?.abort()
+    documentRequest.current.version += 1
+    documentRequest.current.controller?.abort()
+    sessionRequest.current.version += 1
+    sessionRequest.current.controller?.abort()
+    const controller = new AbortController()
+    deepLinkRequest.current = { version, controller }
+
+    resetConversationState()
+    selectedDocumentIdRef.current = null
+    setSelectedDocumentId(null)
+    setDeepLinkState((current) => ({
+      ...current,
+      loading: true,
+      error: null,
+    }))
+    setDocumentsState((current) => ({
+      ...current,
+      loading: true,
+      loadingMore: false,
+      error: null,
+      loadMoreError: null,
+    }))
+
+    const requestIsCurrent = () => isChatDeepLinkRequestCurrent({
+      requestVersion: version,
+      currentRequestVersion: deepLinkRequest.current.version,
+      aborted: controller.signal.aborted,
+    })
+
+    try {
+      const [documentPage, documentDetail] = await Promise.all([
+        getDocuments({
+          accessToken,
+          page: 1,
+          pageSize: DOCUMENT_PAGE_SIZE,
+          signal: controller.signal,
+        }),
+        getDocumentDetail(target.documentId, {
+          accessToken,
+          signal: controller.signal,
+        }),
+      ])
+      if (
+        !documentPage
+        || !Array.isArray(documentPage.items)
+        || documentPage.page !== 1
+        || !Number.isInteger(documentPage.total_pages)
+        || documentPage.total_pages < 0
+        || !Number.isInteger(documentPage.total)
+        || documentPage.total < 0
+        || documentDetail?.id !== target.documentId
+      ) {
+        throw new TypeError('Phản hồi tài liệu không hợp lệ.')
+      }
+
+      const candidateDocuments = mergeDeepLinkedDocument(
+        documentPage.items,
+        documentDetail,
+      )
+      const statusResults = await mapWithConcurrency(
+        candidateDocuments,
+        MAX_CONCURRENT_STATUS_REQUESTS,
+        async (document) => {
+          try {
+            const rag = await getDocumentRagStatus(document.id, {
+              accessToken,
+              signal: controller.signal,
+            })
+            return classifyDocumentForChat(document, rag)
+          } catch (error) {
+            if (error?.name === 'AbortError') throw error
+            const kind = getRagStatusFailureKind(error)
+            if (kind === 'unauthorized') throw error
+            return {
+              kind,
+              document: kind === 'unavailable'
+                ? unavailableChatDocument(document)
+                : document,
+            }
+          }
+        },
+      )
+      if (!requestIsCurrent()) return
+
+      const resolvedDocuments = statusResults
+        .filter((result) => result.kind !== 'deleted')
+        .map((result) => result.document)
+      const targetDocument = resolvedDocuments.find(
+        (document) => document.id === target.documentId,
+      )
+      if (!isChatReadyDocument(targetDocument)) {
+        throw new ChatDeepLinkError(
+          'Tài liệu chưa sẵn sàng hỏi đáp, không còn tồn tại hoặc đang được xóa.',
+          'document_unavailable',
+        )
+      }
+
+      const sessionPages = new Map()
+      const fetchSessionPage = async (offset) => {
+        if (sessionPages.has(offset)) return sessionPages.get(offset)
+        const page = validatePage(
+          await getChatSessions(target.documentId, SESSION_PAGE_SIZE, offset, {
+            accessToken,
+            signal: controller.signal,
+          }),
+          SESSION_PAGE_SIZE,
+          offset,
+        )
+        sessionPages.set(offset, page)
+        return page
+      }
+
+      let resolvedSessions
+      let selectedSession = null
+      let resolvedSessionTotal
+      let resolvedSessionFetchedCount
+      if (target.sessionId) {
+        const resolution = await findSessionAcrossPages({
+          targetSessionId: target.sessionId,
+          pageSize: SESSION_PAGE_SIZE,
+          fetchPage: fetchSessionPage,
+        })
+        resolvedSessions = resolution.items
+        selectedSession = resolution.target
+        resolvedSessionTotal = resolution.total
+        resolvedSessionFetchedCount = resolution.fetchedCount
+      } else {
+        const firstPage = await fetchSessionPage(0)
+        resolvedSessions = firstPage.items
+        resolvedSessionTotal = firstPage.total
+        resolvedSessionFetchedCount = firstPage.items.length
+      }
+      if (!requestIsCurrent()) return
+
+      documentsRef.current = resolvedDocuments
+      setDocuments(resolvedDocuments)
+      selectedDocumentIdRef.current = target.documentId
+      setSelectedDocumentId(target.documentId)
+      setDocumentsState({
+        loading: false,
+        loadingMore: false,
+        error: null,
+        loadMoreError: null,
+        page: 1,
+        totalPages: documentPage.total_pages,
+        total: documentPage.total,
+        deletedCount: statusResults.filter((result) => result.kind === 'deleted').length,
+      })
+      setSessions(resolvedSessions)
+      setSessionTotal(resolvedSessionTotal)
+      setSessionFetchedCount(resolvedSessionFetchedCount)
+      setSessionsState({ loading: false, error: null })
+      skipNextSessionLoad.current = target.documentId
+
+      if (selectedSession) {
+        selectedSessionIdRef.current = selectedSession.id
+        setSelectedSessionId(selectedSession.id)
+        shouldAutoScroll.current = true
+        loadMessages(selectedSession.id)
+      }
+      setDeepLinkState((current) => ({ ...current, loading: false, error: null }))
+    } catch (error) {
+      if (error?.name === 'AbortError' || !requestIsCurrent()) return
+      const message = error instanceof ChatDeepLinkError
+        ? error.message
+        : handleRequestError(error)
+      selectedDocumentIdRef.current = null
+      selectedSessionIdRef.current = null
+      setSelectedDocumentId(null)
+      setSelectedSessionId(null)
+      setSessions([])
+      setSessionTotal(0)
+      setSessionFetchedCount(0)
+      setDocumentsState((current) => ({
+        ...current,
+        loading: false,
+        loadingMore: false,
+        error: message,
+      }))
+      setDeepLinkState((current) => ({ ...current, loading: false, error: message }))
+    }
+  }, [
+    accessToken,
+    handleRequestError,
+    loadMessages,
+    resetConversationState,
+  ])
+
+  useEffect(() => {
+    if (deepLink.kind === 'none') {
+      // URL removal resets only deep-link diagnostics; data loading is handled separately.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setDeepLinkState((current) => (
+        current.loading || current.error
+          ? { ...current, loading: false, error: null }
+          : current
+      ))
+      return undefined
+    }
+    if (skipDeepLinkSearch.current === currentSearch) {
+      skipDeepLinkSearch.current = null
+      return undefined
+    }
+    if (deepLink.kind === 'invalid') {
+      deepLinkRequest.current.version += 1
+      deepLinkRequest.current.controller?.abort()
+      resetConversationState()
+      selectedDocumentIdRef.current = null
+      setSelectedDocumentId(null)
+      const message = 'Liên kết cuộc trò chuyện không hợp lệ.'
+      setDocumentsState((current) => ({
+        ...current,
+        loading: false,
+        loadingMore: false,
+        error: message,
+      }))
+      setDeepLinkState((current) => ({ ...current, loading: false, error: message }))
+      return undefined
+    }
+
+    // Restoring URL state coordinates several authenticated API reads.
+    // oxlint-disable-next-line react/set-state-in-effect
+    restoreDeepLinkedConversation(deepLink)
+    return () => deepLinkRequest.current.controller?.abort()
+  }, [
+    currentSearch,
+    deepLink,
+    deepLinkState.retryVersion,
+    resetConversationState,
+    restoreDeepLinkedConversation,
+  ])
+
   useEffect(() => {
     if (!selectedDocumentId) return undefined
+    if (skipNextSessionLoad.current === selectedDocumentId) {
+      skipNextSessionLoad.current = null
+      return undefined
+    }
     const timer = window.setTimeout(() => loadSessions(selectedDocumentId), 0)
     return () => window.clearTimeout(timer)
   }, [loadSessions, selectedDocumentId])
 
   useEffect(() => () => {
+    deepLinkRequest.current.controller?.abort()
     documentRequest.current.controller?.abort()
     sessionRequest.current.controller?.abort()
     messageRequest.current.controller?.abort()
@@ -588,6 +869,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     selectedDocumentIdRef.current = id
     shouldAutoScroll.current = true
     setSelectedDocumentId(id)
+    navigateToChatSelection(id)
   }
 
   const startNewConversation = () => {
@@ -608,6 +890,9 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     setSendError(null)
     setIsAnswering(false)
     shouldAutoScroll.current = true
+    if (selectedDocumentIdRef.current) {
+      navigateToChatSelection(selectedDocumentIdRef.current)
+    }
     inputRef.current?.focus()
   }
 
@@ -625,6 +910,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     setSendError(null)
     shouldAutoScroll.current = true
     loadMessages(sessionId)
+    navigateToChatSelection(selectedDocumentIdRef.current, sessionId)
   }
 
   const openCitation = async (message, citation) => {
@@ -725,6 +1011,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
 
       selectedSessionIdRef.current = response.session_id
       setSelectedSessionId(response.session_id)
+      navigateToChatSelection(documentId, response.session_id, { replace: true })
       setMessages((current) => [
         ...current.map((message) => message.id === pendingId ? {
           id: response.user_message_id,
@@ -834,7 +1121,26 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
               {documentsState.loading ? (
                 <div className="chat-panel-state" role="status"><span className="chat-spinner" />Đang tải tài liệu...</div>
               ) : documentsState.error ? (
-                <div className="chat-panel-state chat-panel-state--error" role="alert">{documentsState.error}</div>
+                <div className="chat-panel-state chat-panel-state--error" role="alert">
+                  <span>{documentsState.error}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (deepLink.kind === 'valid') {
+                        setDeepLinkState((current) => ({
+                          ...current,
+                          retryVersion: current.retryVersion + 1,
+                        }))
+                      } else if (deepLink.kind === 'invalid') {
+                        navigate('/chat')
+                      } else {
+                        loadDocumentPage(1)
+                      }
+                    }}
+                  >
+                    {deepLink.kind === 'invalid' ? 'Mở trang Chat' : 'Thử lại'}
+                  </button>
+                </div>
               ) : documents.length === 0 && !hasMoreDocuments ? (
                 <div className="chat-panel-state">
                   <Icon name="library" size={24} />

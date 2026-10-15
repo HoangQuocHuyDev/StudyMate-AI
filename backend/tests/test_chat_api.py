@@ -151,6 +151,11 @@ def chat_api_environment(
         cursor = connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+        connection.create_function(  # type: ignore[attr-defined]
+            "lower",
+            1,
+            lambda value: value.casefold() if value is not None else None,
+        )
 
     metadata = MetaData()
     Table(
@@ -217,6 +222,8 @@ def add_document(
     user_id: int = 42,
     status: str = "READY",
     rag_status: str = "READY",
+    title: str = "Tài liệu AI",
+    file_type: str = "DOCX",
 ) -> None:
     add_user(factory, user_id)
     now = datetime.now(timezone.utc)
@@ -226,13 +233,18 @@ def add_document(
             Document(
                 id=document_id,
                 user_id=user_id,
-                title="Tài liệu AI",
-                original_filename="ai.docx",
+                title=title,
+                original_filename=f"ai.{file_type.lower()}",
                 storage_key=(
                     f"users/{user_id}/document-{document_id}-private-storage-key"
                 ),
-                file_type="DOCX",
-                mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                file_type=file_type,
+                mime_type=(
+                    "application/pdf"
+                    if file_type == "PDF"
+                    else "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
                 file_size=100,
                 status=status,
                 rag_status=rag_status,
@@ -350,6 +362,26 @@ def add_message_range(
         db.commit()
 
 
+def add_history_message(
+    factory: sessionmaker[Session],
+    session_id: int,
+    *,
+    content: str,
+    sequence_no: int = 0,
+) -> None:
+    with factory() as db:
+        db.add(
+            ChatMessage(
+                session_id=session_id,
+                sequence_no=sequence_no,
+                role="USER",
+                content=content,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+
 def test_chat_endpoints_require_jwt(
     chat_api_environment: tuple[
         TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
@@ -357,6 +389,7 @@ def test_chat_endpoints_require_jwt(
 ) -> None:
     client, _, _, _ = chat_api_environment
     assert client.post("/chat/ask", json={"document_id": 1, "question": "Q"}).status_code == 401
+    assert client.get("/chat/history").status_code == 401
     assert client.get("/chat/sessions?document_id=1").status_code == 401
     assert client.get("/chat/sessions/1/messages").status_code == 401
     assert client.get("/chat/sessions/1/messages/cursor").status_code == 401
@@ -689,6 +722,242 @@ def test_sessions_are_owner_scoped_ordered_and_paginated(
     assert [item["id"] for item in body["items"]] == [third, second]
     assert first not in [item["id"] for item in body["items"]]
     assert all("content" not in item for item in body["items"])
+
+
+def test_combined_history_empty_and_rejects_invalid_auth_or_query(
+    chat_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
+    ],
+) -> None:
+    client, factory, _, _ = chat_api_environment
+    add_user(factory, 42)
+    headers = authorization_header(42)
+
+    response = client.get("/chat/history", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+    }
+    assert client.get(
+        "/chat/history",
+        headers={"Authorization": "Bearer invalid"},
+    ).status_code == 401
+    for params in (
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+        {"search": "x" * 256},
+        {"period": "year"},
+    ):
+        assert client.get(
+            "/chat/history",
+            params=params,
+            headers=headers,
+        ).status_code == 422
+
+
+def test_combined_history_is_owner_scoped_sorted_paginated_and_bounded(
+    chat_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
+    ],
+) -> None:
+    client, factory, _, _ = chat_api_environment
+    add_document(
+        factory,
+        document_id=1,
+        user_id=42,
+        title="Giáo trình AI",
+        file_type="PDF",
+    )
+    add_document(
+        factory,
+        document_id=2,
+        user_id=42,
+        title="Bài giảng Python",
+    )
+    add_document(factory, document_id=3, user_id=8, title="Riêng tư")
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    oldest = add_session(
+        factory,
+        document_id=1,
+        title="Cũ",
+        updated_at=base,
+    )
+    middle = add_session(
+        factory,
+        document_id=2,
+        title="Mới A",
+        updated_at=base + timedelta(days=1),
+    )
+    newest = add_session(
+        factory,
+        document_id=1,
+        title="Mới B",
+        updated_at=base + timedelta(days=1),
+    )
+    other_user = add_session(
+        factory,
+        document_id=3,
+        title="Không được lộ",
+        updated_at=base + timedelta(days=2),
+    )
+    preview = "N" * 230
+    add_history_message(factory, newest, content=preview)
+
+    response = client.get(
+        "/chat/history",
+        params={"limit": 2, "offset": 0},
+        headers=authorization_header(42),
+    )
+    body = response.json()
+    assert response.status_code == 200
+    assert body["total"] == 3
+    assert [item["session_id"] for item in body["items"]] == [newest, middle]
+    assert oldest not in [item["session_id"] for item in body["items"]]
+    assert other_user not in [item["session_id"] for item in body["items"]]
+    assert body["items"][0]["document_title"] == "Giáo trình AI"
+    assert body["items"][0]["file_type"] == "PDF"
+    assert body["items"][0]["last_message_preview"] == preview[:200]
+    assert set(body["items"][0]) == {
+        "session_id",
+        "document_id",
+        "title",
+        "document_title",
+        "file_type",
+        "created_at",
+        "updated_at",
+        "last_message_preview",
+    }
+
+    second_page = client.get(
+        "/chat/history",
+        params={"limit": 2, "offset": 2},
+        headers=authorization_header(42),
+    ).json()
+    assert second_page["total"] == 3
+    assert [item["session_id"] for item in second_page["items"]] == [oldest]
+
+
+def test_combined_history_search_is_unicode_case_insensitive_and_escaped(
+    chat_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
+    ],
+) -> None:
+    client, factory, _, _ = chat_api_environment
+    add_document(
+        factory,
+        document_id=1,
+        title="Giáo trình Trí Tuệ Nhân Tạo",
+    )
+    add_document(factory, document_id=2, title="Ký tự an toàn")
+    by_document = add_session(factory, document_id=1, title="Ôn tập")
+    special = add_session(
+        factory,
+        document_id=2,
+        title=r"Mẫu 100%_\ an toàn",
+    )
+    headers = authorization_header(42)
+
+    vietnamese = client.get(
+        "/chat/history",
+        params={"search": "trí tuỆ"},
+        headers=headers,
+    ).json()
+    assert [item["session_id"] for item in vietnamese["items"]] == [by_document]
+    for literal in ("%", "_", "\\"):
+        body = client.get(
+            "/chat/history",
+            params={"search": literal},
+            headers=headers,
+        ).json()
+        assert [item["session_id"] for item in body["items"]] == [special]
+
+
+def test_combined_history_periods_use_updated_at_in_utc(
+    chat_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
+    ],
+) -> None:
+    client, factory, _, _ = chat_api_environment
+    add_document(factory)
+    now = datetime.now(timezone.utc)
+    today = add_session(factory, title="Hôm nay", updated_at=now)
+    this_week = add_session(
+        factory,
+        title="Tuần này",
+        updated_at=now - timedelta(days=3),
+    )
+    this_month = add_session(
+        factory,
+        title="Tháng này",
+        updated_at=now - timedelta(days=15),
+    )
+    old = add_session(
+        factory,
+        title="Cũ",
+        updated_at=now - timedelta(days=40),
+    )
+    headers = authorization_header(42)
+
+    expected = {
+        "today": {today},
+        "week": {today, this_week},
+        "month": {today, this_week, this_month},
+    }
+    for period, session_ids in expected.items():
+        body = client.get(
+            "/chat/history",
+            params={"period": period},
+            headers=headers,
+        ).json()
+        assert {item["session_id"] for item in body["items"]} == session_ids
+        assert body["total"] == len(session_ids)
+        assert old not in session_ids
+
+
+def test_combined_history_excludes_deleting_and_deleted_documents(
+    chat_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeRetrieval, FakeAnswer
+    ],
+) -> None:
+    client, factory, _, _ = chat_api_environment
+    add_document(factory, document_id=1)
+    add_document(factory, document_id=2)
+    add_document(factory, document_id=3)
+    deleting_session = add_session(factory, document_id=1, title="Đang xóa")
+    deleted_session = add_session(factory, document_id=2, title="Đã xóa")
+    active_session = add_session(factory, document_id=3, title="Còn hiệu lực")
+    with factory() as db:
+        deleting_document = db.get(Document, 1)
+        assert deleting_document is not None
+        db.add(
+            DocumentDeletionJob(
+                document_id=1,
+                user_id=42,
+                storage_key=deleting_document.storage_key,
+                status="PENDING",
+                current_step="VECTOR_CLEANUP",
+                attempt_count=0,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        deleted_document = db.get(Document, 2)
+        assert deleted_document is not None
+        db.delete(deleted_document)
+        db.commit()
+
+    body = client.get(
+        "/chat/history",
+        headers=authorization_header(42),
+    ).json()
+    assert body["total"] == 1
+    assert [item["session_id"] for item in body["items"]] == [active_session]
+    assert deleting_session not in [item["session_id"] for item in body["items"]]
+    assert deleted_session not in [item["session_id"] for item in body["items"]]
 
 
 def test_other_user_cannot_list_sessions_or_messages(

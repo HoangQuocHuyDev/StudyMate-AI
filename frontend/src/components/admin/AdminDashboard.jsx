@@ -75,14 +75,14 @@ function AdminDashboard() {
             <div><p>{title.eyebrow}</p><h1>{title.title}</h1></div>
           </div>
           <div className="admin-header__right">
-            <span className="admin-demo-badge"><i />Dữ liệu minh họa</span>
+            <span className="admin-role-badge"><Icon name="shield" size={15} />ADMIN</span>
             <div className="admin-profile"><span>{userInitials}</span><div><strong>{displayName}</strong><small>{roleLabel}</small></div></div>
           </div>
         </header>
 
         <main className="admin-content">
-          <div className="admin-warning"><Icon name="shield" size={17} /><p><strong>Giao diện quản trị đang sử dụng dữ liệu minh họa.</strong> Phân quyền giao diện không thay thế việc bảo vệ từng API quản trị ở Backend.</p></div>
-          {activeView === 'overview' && <AdminOverview onNavigate={setActiveView} />}
+          <div className="admin-warning"><Icon name="shield" size={18} /><p><strong>Chưa có API thống kê và quản trị hệ thống.</strong> Các danh sách quản lý bên dưới là bản minh họa có nhãn; trang tổng quan không hiển thị số liệu giả như dữ liệu thật.</p></div>
+          {activeView === 'overview' && <AdminOverview displayName={displayName} onNavigate={setActiveView} />}
           {activeView === 'users' && <AdminUsers users={users} onToggleStatus={toggleUserStatus} />}
           {activeView === 'documents' && <AdminDocuments documents={documents} onDelete={deleteDocument} />}
         </main>

@@ -65,6 +65,28 @@ class ChatSessionListResponse(BaseModel):
     offset: int
 
 
+class ChatHistoryItemResponse(BaseModel):
+    """One owner-scoped session with its document list metadata."""
+
+    session_id: int
+    document_id: int
+    title: str
+    document_title: str
+    file_type: str
+    created_at: datetime
+    updated_at: datetime
+    last_message_preview: str | None
+
+
+class ChatHistoryListResponse(BaseModel):
+    """Offset-paginated sessions across all active owned documents."""
+
+    items: list[ChatHistoryItemResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class ChatMessageResponse(BaseModel):
     """One ordered message and its verified assistant citations."""
 

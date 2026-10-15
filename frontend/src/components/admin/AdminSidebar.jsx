@@ -1,12 +1,7 @@
 import Icon from '../Icons'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNavigation } from '../../navigation/NavigationContext'
-
-const items = [
-  { id: 'overview', label: 'Tổng quan', icon: 'overview' },
-  { id: 'users', label: 'Quản lý người dùng', icon: 'users' },
-  { id: 'documents', label: 'Quản lý tài liệu', icon: 'documents' },
-]
+import { ADMIN_NAVIGATION } from './adminDashboardUi'
 
 function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
   const { isLoggingOut, logoutWithRevocation } = useAuth()
@@ -23,13 +18,16 @@ function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
     <aside className={`admin-sidebar ${isOpen ? 'admin-sidebar--open' : ''}`} aria-label="Điều hướng quản trị">
       <div className="admin-brand">
         <div className="admin-brand__mark"><Icon name="shield" size={21} /></div>
-        <div><strong>StudyMate</strong><span>Quản trị viên</span></div>
+        <div className="admin-brand__copy">
+          <div className="admin-brand__name"><strong>StudyMate</strong><span>AI</span></div>
+          <small>Quản trị hệ thống</small>
+        </div>
         <button type="button" onClick={onClose} aria-label="Đóng thanh điều hướng"><Icon name="close" size={20} /></button>
       </div>
 
       <nav className="admin-nav">
         <p>Không gian quản trị</p>
-        {items.map((item) => (
+        {ADMIN_NAVIGATION.map((item) => (
           <button className={activeView === item.id ? 'admin-nav__item admin-nav__item--active' : 'admin-nav__item'} type="button" key={item.id} onClick={() => { onChangeView(item.id); onClose() }} aria-current={activeView === item.id ? 'page' : undefined}>
             <Icon name={item.icon} size={19} /><span>{item.label}</span>
           </button>
@@ -37,7 +35,7 @@ function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
       </nav>
 
       <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Dữ liệu minh họa</strong><span>Quyền giao diện được xác minh qua tài khoản hiện tại.</span></p></div>
-      <a className="admin-back-link" href="/"><Icon name="arrow" size={17} />Về giao diện sinh viên</a>
+      <button className="admin-back-link admin-user-view-link" type="button" onClick={() => { onClose(); navigate('/') }}><Icon name="arrow" size={17} />Về giao diện người dùng</button>
       <button className="admin-back-link admin-logout-button" type="button" onClick={handleLogout} disabled={isLoggingOut}><Icon name="logout" size={17} />{isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}</button>
     </aside>
   )

@@ -1,6 +1,6 @@
 """Authenticated synchronous RAG chat and history routes."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.schemas.chat import (
     ChatAskRequest,
     ChatAskResponse,
     ChatCitationDetailResponse,
+    ChatHistoryListResponse,
     ChatMessageCursorListResponse,
     ChatMessageListResponse,
     ChatSessionListResponse,
@@ -21,6 +22,7 @@ from app.services.rag.chat_history import (
     ChatHistoryInfrastructureError,
     ChatHistoryNotFoundError,
     get_chat_citation_detail,
+    list_owned_chat_history,
     list_chat_messages,
     list_chat_messages_cursor,
     list_chat_sessions,
@@ -122,6 +124,45 @@ def ask_owned_document(
             detail="Không thể hoàn tất lượt hỏi đáp lúc này.",
         ) from None
     return ChatAskResponse.model_validate(result, from_attributes=True)
+
+
+@router.get("/history", response_model=ChatHistoryListResponse)
+def get_owned_chat_history(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    search: Annotated[str, Query(max_length=255)] = "",
+    period: Annotated[
+        Literal["today", "week", "month"] | None,
+        Query(),
+    ] = None,
+) -> ChatHistoryListResponse:
+    """List recent sessions across all non-deleting documents of one user."""
+
+    try:
+        page = list_owned_chat_history(
+            db,
+            user_id=current_user.id,
+            limit=limit,
+            offset=offset,
+            search=search,
+            period=period,
+        )
+    except ChatHistoryInfrastructureError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể tải lịch sử trò chuyện lúc này.",
+        ) from None
+    return ChatHistoryListResponse.model_validate(
+        {
+            "items": page.items,
+            "total": page.total,
+            "limit": limit,
+            "offset": offset,
+        },
+        from_attributes=True,
+    )
 
 
 @router.get("/sessions", response_model=ChatSessionListResponse)

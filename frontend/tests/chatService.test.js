@@ -5,10 +5,68 @@ import apiClient, { ApiHttpError } from '../src/services/apiClient.js'
 import {
   askDocument,
   getChatCitation,
+  getChatHistory,
   getChatMessages,
   getChatMessagesCursor,
   getChatSessions,
 } from '../src/services/chatService.js'
+
+test('getChatHistory sends JWT and safe search, period, and pagination parameters', async (context) => {
+  const controller = new AbortController()
+  let captured
+  context.mock.method(apiClient, 'get', async (...args) => {
+    captured = args
+    return { items: [], total: 0, limit: 20, offset: 40 }
+  })
+
+  const response = await getChatHistory({
+    limit: 20,
+    offset: 40,
+    search: '  Trí tuệ nhân tạo & 100%  ',
+    period: 'week',
+  }, {
+    accessToken: 'header.payload.signature',
+    signal: controller.signal,
+  })
+
+  const url = new URL(captured[0], 'https://frontend.test')
+  assert.equal(url.pathname, '/chat/history')
+  assert.equal(url.searchParams.get('limit'), '20')
+  assert.equal(url.searchParams.get('offset'), '40')
+  assert.equal(url.searchParams.get('search'), 'Trí tuệ nhân tạo & 100%')
+  assert.equal(url.searchParams.get('period'), 'week')
+  assert.deepEqual(captured[1].headers, {
+    Authorization: 'Bearer header.payload.signature',
+  })
+  assert.equal(captured[1].signal, controller.signal)
+  assert.deepEqual(response, { items: [], total: 0, limit: 20, offset: 40 })
+})
+
+test('getChatHistory omits empty optional filters and validates all inputs', async (context) => {
+  let capturedPath = ''
+  let requestCount = 0
+  context.mock.method(apiClient, 'get', async (path) => {
+    requestCount += 1
+    capturedPath = path
+    return { items: [], total: 0, limit: 20, offset: 0 }
+  })
+
+  await getChatHistory({ search: '   ', period: '' }, { accessToken: 'token' })
+  const url = new URL(capturedPath, 'https://frontend.test')
+  assert.equal(url.searchParams.has('search'), false)
+  assert.equal(url.searchParams.has('period'), false)
+
+  const invalidCalls = [
+    () => getChatHistory({ limit: 0 }, { accessToken: 'token' }),
+    () => getChatHistory({ offset: -1 }, { accessToken: 'token' }),
+    () => getChatHistory({ search: 'x'.repeat(256) }, { accessToken: 'token' }),
+    () => getChatHistory({ search: null }, { accessToken: 'token' }),
+    () => getChatHistory({ period: 'year' }, { accessToken: 'token' }),
+    () => getChatHistory({}, { accessToken: ' token ' }),
+  ]
+  for (const invalidCall of invalidCalls) assert.throws(invalidCall, TypeError)
+  assert.equal(requestCount, 1)
+})
 
 test('askDocument sends the expected authenticated POST payload', async (context) => {
   const controller = new AbortController()
@@ -203,6 +261,7 @@ test('chat services never access browser storage', async (context) => {
   await getChatMessages(1, 50, 0, { accessToken: 'token' })
   await getChatMessagesCursor(1, null, 50, { accessToken: 'token' })
   await getChatCitation(1, 1, 1, { accessToken: 'token' })
+  await getChatHistory({}, { accessToken: 'token' })
 
   assert.equal(storageAccessed, false)
 })

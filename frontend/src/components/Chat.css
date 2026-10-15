@@ -14,6 +14,8 @@
 .chat-panel-state strong { color: #445166; font-size: 14px; }
 .chat-panel-state span { line-height: 1.5; }
 .chat-panel-state a { margin-top: 3px; color: #2862c5; font-weight: 750; text-decoration: none; }
+.chat-panel-state button { min-height: 38px; margin-top: 3px; padding: 0 13px; border: 1px solid currentColor; border-radius: 9px; color: inherit; background: #fff; font: inherit; font-weight: 750; cursor: pointer; }
+.chat-panel-state button:focus-visible { outline: 3px solid rgba(37, 99, 235, 0.22); outline-offset: 2px; }
 .chat-panel-state--error { color: #aa4646; border-color: #f1cccc; background: #fff5f5; }
 .chat-spinner { width: 16px; height: 16px; border: 2px solid #d7e2f4; border-top-color: #3473dd; border-radius: 50%; animation: chat-spin .75s linear infinite; }
 

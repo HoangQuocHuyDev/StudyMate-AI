@@ -41,6 +41,22 @@ test('authenticated login routing restores the document search URL', () => {
   }), '/documents?search=Python')
 })
 
+test('F5 and login restore an authenticated Chat deep-link intact', () => {
+  const redirect = getRouteRedirect({
+    currentPath: '/chat',
+    currentSearch: '?document_id=12&session_id=45',
+    currentHash: '',
+    isAuthenticated: false,
+    isLoading: false,
+    role: undefined,
+  })
+  const loginSearch = new URL(redirect, 'https://studymate.test').search
+  assert.equal(
+    getPostLoginRoute({ currentSearch: loginSearch, role: 'USER' }),
+    '/chat?document_id=12&session_id=45',
+  )
+})
+
 test('return destination accepts only known internal routes allowed for the role', () => {
   assert.equal(
     getPostLoginRoute({ currentSearch: '?return_to=https%3A%2F%2Fevil.test', role: 'USER' }),

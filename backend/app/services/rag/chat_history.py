@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
@@ -63,6 +64,27 @@ class ChatSessionHistoryPage:
     total: int
 
 
+ChatHistoryPeriod = Literal["today", "week", "month"]
+
+
+@dataclass(frozen=True, slots=True)
+class ChatHistoryListItem:
+    session_id: int
+    document_id: int
+    title: str
+    document_title: str
+    file_type: str
+    created_at: datetime
+    updated_at: datetime
+    last_message_preview: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ChatHistoryListPage:
+    items: list[ChatHistoryListItem]
+    total: int
+
+
 @dataclass(frozen=True, slots=True)
 class ChatMessageHistoryPage:
     session_id: int
@@ -87,6 +109,96 @@ class ChatCitationDetail:
     content: str
     page_number: int | None
     citation_order: int
+
+
+def list_owned_chat_history(
+    db: Session,
+    *,
+    user_id: int,
+    limit: int,
+    offset: int,
+    search: str = "",
+    period: ChatHistoryPeriod | None = None,
+    now: datetime | None = None,
+) -> ChatHistoryListPage:
+    """List one user's sessions across active documents without N+1 reads."""
+
+    normalized_search = search.strip()
+    filters = [
+        Document.user_id == user_id,
+        document_not_being_deleted(Document.id),
+    ]
+    if normalized_search:
+        escaped_search = _escape_like(normalized_search)
+        pattern = f"%{escaped_search}%"
+        filters.append(
+            or_(
+                ChatSession.title.ilike(pattern, escape="\\"),
+                Document.title.ilike(pattern, escape="\\"),
+            )
+        )
+    period_start = _period_start(period, now=now)
+    if period_start is not None:
+        filters.append(ChatSession.updated_at >= period_start)
+
+    last_message_content = (
+        select(ChatMessage.content)
+        .where(ChatMessage.session_id == ChatSession.id)
+        .order_by(ChatMessage.sequence_no.desc(), ChatMessage.id.desc())
+        .limit(1)
+        .correlate(ChatSession)
+        .scalar_subquery()
+    )
+
+    try:
+        total = db.scalar(
+            select(func.count(ChatSession.id))
+            .select_from(ChatSession)
+            .join(Document, Document.id == ChatSession.document_id)
+            .where(*filters)
+        ) or 0
+        rows = db.execute(
+            select(
+                ChatSession.id,
+                ChatSession.document_id,
+                ChatSession.title,
+                Document.title.label("document_title"),
+                Document.file_type,
+                ChatSession.created_at,
+                ChatSession.updated_at,
+                func.substr(last_message_content, 1, 200).label(
+                    "last_message_preview"
+                ),
+            )
+            .select_from(ChatSession)
+            .join(Document, Document.id == ChatSession.document_id)
+            .where(*filters)
+            .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+    except SQLAlchemyError:
+        _safe_rollback(db)
+        raise ChatHistoryInfrastructureError(
+            "Combined chat history could not be loaded."
+        ) from None
+
+    return ChatHistoryListPage(
+        items=[
+            ChatHistoryListItem(
+                session_id=row.id,
+                document_id=row.document_id,
+                title=row.title,
+                document_title=row.document_title,
+                file_type=row.file_type,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                last_message_preview=row.last_message_preview,
+            )
+            for row in rows
+        ],
+        total=int(total),
+    )
 
 
 def list_chat_sessions(
@@ -376,6 +488,34 @@ def get_chat_citation_detail(
         page_number=chunk.page_number,
         citation_order=citation_order,
     )
+
+
+def _escape_like(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _period_start(
+    period: ChatHistoryPeriod | None,
+    *,
+    now: datetime | None,
+) -> datetime | None:
+    if period is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError("History clock must be timezone-aware.")
+    current = current.astimezone(timezone.utc)
+    if period == "today":
+        return current.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "week":
+        return current - timedelta(days=7)
+    if period == "month":
+        return current - timedelta(days=30)
+    raise ValueError("History period must be today, week, month, or omitted.")
 
 
 def _safe_rollback(db: Session) -> None:

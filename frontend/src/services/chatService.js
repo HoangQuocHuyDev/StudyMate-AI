@@ -1,7 +1,9 @@
 import apiClient from './apiClient.js'
 
 export const MAX_CHAT_QUESTION_LENGTH = 2000
+export const MAX_CHAT_HISTORY_SEARCH_LENGTH = 255
 const MAX_PAGE_SIZE = 100
+const CHAT_HISTORY_PERIODS = new Set(['', 'today', 'week', 'month'])
 
 function validateAccessToken(accessToken) {
   if (
@@ -122,6 +124,42 @@ export function getChatMessagesCursor(
   }
   return apiClient.get(
     `/chat/sessions/${sessionId}/messages/cursor?${query.toString()}`,
+    authenticatedOptions(accessToken, signal),
+  )
+}
+
+export function getChatHistory(
+  {
+    limit = 20,
+    offset = 0,
+    search = '',
+    period = '',
+  } = {},
+  { accessToken, signal } = {},
+) {
+  validatePagination(limit, offset)
+  if (typeof search !== 'string') {
+    throw new TypeError('Từ khóa tìm kiếm phải là một chuỗi.')
+  }
+  const normalizedSearch = search.trim()
+  if (normalizedSearch.length > MAX_CHAT_HISTORY_SEARCH_LENGTH) {
+    throw new TypeError(
+      `Từ khóa tìm kiếm không được vượt quá ${MAX_CHAT_HISTORY_SEARCH_LENGTH} ký tự.`,
+    )
+  }
+  if (typeof period !== 'string' || !CHAT_HISTORY_PERIODS.has(period)) {
+    throw new TypeError('Khoảng thời gian lọc không hợp lệ.')
+  }
+
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  })
+  if (normalizedSearch) query.set('search', normalizedSearch)
+  if (period) query.set('period', period)
+
+  return apiClient.get(
+    `/chat/history?${query.toString()}`,
     authenticatedOptions(accessToken, signal),
   )
 }

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
+from app.routers.admin_dashboard import router as admin_dashboard_router
 from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
 from app.routers.dashboard import router as dashboard_router
@@ -23,6 +24,7 @@ app.include_router(documents_router)
 app.include_router(chat_router)
 app.include_router(summaries_router)
 app.include_router(dashboard_router)
+app.include_router(admin_dashboard_router)
 
 
 @app.get("/health")
