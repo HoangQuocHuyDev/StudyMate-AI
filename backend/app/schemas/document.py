@@ -58,6 +58,19 @@ class DocumentDetailResponse(DocumentResponse):
     indexed_at: datetime | None
 
 
+class DocumentPreviewResponse(BaseModel):
+    """Owner-scoped plain-text preview extracted from one DOCX source file."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: int
+    title: str
+    original_filename: str
+    file_type: str
+    content: str
+    character_count: int
+
+
 class DocumentProcessingStatusResponse(BaseModel):
     """Safe processing and indexing state for one owned document."""
 

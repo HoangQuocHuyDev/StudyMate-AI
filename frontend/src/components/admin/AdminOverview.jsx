@@ -140,7 +140,7 @@ function AdminOverview({ displayName, onNavigate }) {
       </section>
 
       <div className="admin-section-heading admin-overview__heading">
-        <div><p>Tổng quan hệ thống</p><h2>Chỉ số quản trị</h2><span>Số liệu được tổng hợp trực tiếp từ Backend và loại tài liệu đang xóa.</span></div>
+        <div><p>Tổng quan hệ thống</p><h2>Chỉ số quản trị</h2><span>Số liệu được cập nhật từ hệ thống và không bao gồm tài liệu đang xóa.</span></div>
         <strong>{overviewData ? 'Dữ liệu trực tiếp' : 'Đang đồng bộ'}</strong>
       </div>
 

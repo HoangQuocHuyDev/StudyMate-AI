@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "docx-preview": "^0.4.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0"

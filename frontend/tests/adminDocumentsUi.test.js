@@ -95,7 +95,7 @@ test('formatters and Vietnamese status badges are stable', () => {
   assert.equal(formatAdminDocumentDate(null), 'Chưa có')
   assert.match(formatAdminDocumentDate(documentItem.created_at), /15\/10\/2026/)
   assert.deepEqual(getDocumentStatusPresentation('PROCESSING'), { label: 'Đang xử lý', tone: 'processing' })
-  assert.deepEqual(getRagStatusPresentation('PENDING'), { label: 'Chưa lập chỉ mục', tone: 'pending' })
+  assert.deepEqual(getRagStatusPresentation('PENDING'), { label: 'Chưa sẵn sàng', tone: 'pending' })
 })
 
 test('list reducer covers loading, empty/error retry data, and stale responses', () => {
@@ -160,7 +160,7 @@ for (const [status, pattern] of [
   [403, /không có quyền/],
   [404, /không còn tồn tại/],
   [422, /không hợp lệ/],
-  [500, /Máy chủ/],
+  [500, /Hệ thống/],
 ]) {
   test(`HTTP ${status} has a safe Vietnamese Admin Documents message`, () => {
     const error = new ApiHttpError('raw private path', {

@@ -2,14 +2,14 @@ import apiClient from './apiClient.js'
 
 export class InvalidLoginResponseError extends Error {
   constructor() {
-    super('Phản hồi đăng nhập từ máy chủ không hợp lệ.')
+    super('Không thể xác minh thông tin đăng nhập. Vui lòng thử lại.')
     this.name = 'InvalidLoginResponseError'
   }
 }
 
 export class InvalidCurrentUserResponseError extends Error {
   constructor() {
-    super('Phản hồi thông tin người dùng từ máy chủ không hợp lệ.')
+    super('Không thể xác minh thông tin tài khoản. Vui lòng thử lại.')
     this.name = 'InvalidCurrentUserResponseError'
   }
 }

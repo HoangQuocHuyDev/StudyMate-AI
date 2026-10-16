@@ -130,13 +130,13 @@ function Login() {
       } else if (error instanceof AuthSessionError) {
         setNotice(error.message)
       } else if (error instanceof ApiNetworkError) {
-        setNotice('Không thể kết nối đến máy chủ. Vui lòng kiểm tra Backend và thử lại.')
+        setNotice('Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.')
       } else if (error instanceof ApiConfigurationError) {
-        setNotice('Frontend chưa được cấu hình địa chỉ API hợp lệ.')
+        setNotice('Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.')
       } else if (error instanceof InvalidLoginResponseError) {
-        setNotice('Đăng nhập không thành công do phản hồi máy chủ không hợp lệ.')
+        setNotice('Không thể xác minh thông tin đăng nhập. Vui lòng thử lại.')
       } else if (error instanceof ApiHttpError && error.status === 503) {
-        setNotice('Máy chủ tạm thời không thể xử lý đăng nhập. Vui lòng thử lại.')
+        setNotice('Hệ thống tạm thời không thể xử lý đăng nhập. Vui lòng thử lại.')
       } else if (error instanceof ApiHttpError) {
         setNotice(error.message || 'Không thể đăng nhập lúc này. Vui lòng thử lại.')
       } else {

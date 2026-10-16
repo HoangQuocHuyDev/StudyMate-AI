@@ -99,6 +99,17 @@ export function viewDocumentPdf(documentId, { accessToken, signal } = {}) {
   })
 }
 
+export function previewDocumentDocx(documentId, { accessToken, signal } = {}) {
+  validateAuthenticatedDocumentRequest(documentId, accessToken)
+
+  return apiClient.get(`/documents/${documentId}/preview`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    signal,
+  })
+}
+
 export function downloadDocument(documentId, { accessToken, signal } = {}) {
   validateAuthenticatedDocumentRequest(documentId, accessToken)
 

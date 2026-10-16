@@ -15,6 +15,7 @@ import {
   getDocuments,
   indexDocument,
   processDocument,
+  previewDocumentDocx,
   uploadDocument,
   viewDocumentPdf,
 } from '../src/services/documentService.js'
@@ -67,14 +68,22 @@ test('getDocuments sends an authenticated GET and returns the API response', asy
   assert.equal(capturedRequest[0].includes('user_id'), false)
 })
 
-test('document detail, PDF view, and download use authenticated owner-scoped endpoints', async (context) => {
+test('document detail, PDF/DOCX preview, and download use authenticated owner-scoped endpoints', async (context) => {
   const detail = { id: 7, title: 'Bài giảng', file_type: 'PDF' }
+  const preview = {
+    document_id: 7,
+    title: 'Bài học',
+    original_filename: 'bai-hoc.docx',
+    file_type: 'DOCX',
+    content: 'Nội dung',
+    character_count: 8,
+  }
   const blob = new Blob(['%PDF-test'], { type: 'application/pdf' })
   const getCalls = []
   const blobCalls = []
   context.mock.method(apiClient, 'get', async (...args) => {
     getCalls.push(args)
-    return detail
+    return args[0].endsWith('/preview') ? preview : detail
   })
   context.mock.method(apiClient, 'getBlob', async (...args) => {
     blobCalls.push(args)
@@ -90,12 +99,17 @@ test('document detail, PDF view, and download use authenticated owner-scoped end
     accessToken: 'header.payload.signature',
     signal: controller.signal,
   }), blob)
+  assert.equal(await previewDocumentDocx(7, {
+    accessToken: 'header.payload.signature',
+    signal: controller.signal,
+  }), preview)
   assert.equal(await downloadDocument(7, {
     accessToken: 'header.payload.signature',
     signal: controller.signal,
   }), blob)
 
   assert.equal(getCalls[0][0], '/documents/7')
+  assert.equal(getCalls[1][0], '/documents/7/preview')
   assert.equal(blobCalls[0][0], '/documents/7/view')
   assert.equal(blobCalls[1][0], '/documents/7/download')
   for (const [, options] of [...getCalls, ...blobCalls]) {
@@ -168,7 +182,12 @@ test('deleteDocument preserves network errors and validates input before request
 })
 
 test('document file services reject invalid input before requesting', () => {
-  for (const operation of [getDocumentDetail, viewDocumentPdf, downloadDocument]) {
+  for (const operation of [
+    getDocumentDetail,
+    viewDocumentPdf,
+    previewDocumentDocx,
+    downloadDocument,
+  ]) {
     assert.throws(() => operation(0, { accessToken: 'token' }), TypeError)
     assert.throws(() => operation(1, { accessToken: '' }), TypeError)
     assert.throws(() => operation(1, { accessToken: ' token ' }), TypeError)
@@ -194,6 +213,32 @@ for (const status of [400, 401, 404, 500]) {
     )
   })
 }
+
+for (const status of [400, 401, 404, 409, 413, 500]) {
+  test(`DOCX preview service preserves HTTP ${status} errors`, async (context) => {
+    const error = new ApiHttpError('Request failed', {
+      status,
+      statusText: 'Error',
+      data: { detail: 'Request failed' },
+    })
+    context.mock.method(apiClient, 'get', async () => { throw error })
+
+    await assert.rejects(
+      previewDocumentDocx(1, { accessToken: 'token' }),
+      (received) => received === error,
+    )
+  })
+}
+
+test('DOCX preview service preserves network errors', async (context) => {
+  const error = new ApiNetworkError('Network unavailable')
+  context.mock.method(apiClient, 'get', async () => { throw error })
+
+  await assert.rejects(
+    previewDocumentDocx(1, { accessToken: 'token' }),
+    (received) => received === error,
+  )
+})
 
 test('getDocuments trims and safely encodes search', async (context) => {
   let capturedPath

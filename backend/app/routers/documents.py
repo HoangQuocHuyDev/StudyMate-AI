@@ -32,6 +32,7 @@ from app.schemas.document import (
     DocumentFileType,
     DocumentIndexingResponse,
     DocumentListResponse,
+    DocumentPreviewResponse,
     DocumentProcessingStatusResponse,
     DocumentRagStatusResponse,
     DocumentResponse,
@@ -44,6 +45,13 @@ from app.services.document_processing import (
     get_document_processing_status,
     process_document,
     retry_document,
+)
+from app.services.document_preview import (
+    DocumentPreviewNotFoundError,
+    DocumentPreviewTooLargeError,
+    DocumentPreviewUnavailableError,
+    UnsupportedDocumentPreviewError,
+    get_owned_docx_preview,
 )
 from app.services.document_deletion import (
     DocumentDeletionConflictError,
@@ -225,6 +233,46 @@ def view_document_pdf(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/{document_id}/preview", response_model=DocumentPreviewResponse)
+def preview_document_docx(
+    document_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    storage: Annotated[FileStorage, Depends(get_file_storage)],
+) -> DocumentPreviewResponse:
+    """Return a read-only plain-text preview of one owned DOCX source file."""
+
+    try:
+        preview = get_owned_docx_preview(
+            db,
+            storage,
+            document_id=document_id,
+            user_id=current_user.id,
+        )
+    except DocumentPreviewNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy tài liệu.",
+        ) from None
+    except UnsupportedDocumentPreviewError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ hỗ trợ xem trước nội dung tài liệu DOCX.",
+        ) from None
+    except DocumentPreviewTooLargeError:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Nội dung tài liệu vượt quá giới hạn xem trước.",
+        ) from None
+    except DocumentPreviewUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể tạo bản xem trước tài liệu lúc này.",
+        ) from None
+
+    return DocumentPreviewResponse.model_validate(preview)
 
 
 @router.get("/{document_id}/download")

@@ -17,7 +17,7 @@ export function getDocumentUploadValidationMessage(file) {
   }
 
   if (file.size > MAX_DOCUMENT_UPLOAD_SIZE) {
-    return 'File vượt quá giới hạn 10 MiB của giao diện. Backend vẫn sẽ kiểm tra giới hạn cuối cùng.'
+    return 'File vượt quá giới hạn 10 MiB. Vui lòng chọn một file nhỏ hơn.'
   }
 
   return null

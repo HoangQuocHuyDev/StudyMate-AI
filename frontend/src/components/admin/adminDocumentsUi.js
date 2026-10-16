@@ -212,10 +212,10 @@ export function getDocumentStatusPresentation(status) {
 
 export function getRagStatusPresentation(status) {
   return {
-    PENDING: { label: 'Chưa lập chỉ mục', tone: 'pending' },
-    INDEXING: { label: 'Đang lập chỉ mục', tone: 'processing' },
+    PENDING: { label: 'Chưa sẵn sàng', tone: 'pending' },
+    INDEXING: { label: 'Đang chuẩn bị', tone: 'processing' },
     READY: { label: 'Sẵn sàng', tone: 'active' },
-    FAILED: { label: 'Lập chỉ mục lỗi', tone: 'error' },
+    FAILED: { label: 'Chuẩn bị thất bại', tone: 'error' },
   }[status]
 }
 
@@ -225,13 +225,13 @@ export function getAdminDocumentsErrorMessage(error, context = 'list') {
     if (error.status === 403) return 'Bạn không có quyền xem dữ liệu tài liệu toàn hệ thống.'
     if (error.status === 404) return 'Tài liệu không còn tồn tại hoặc đang được xóa.'
     if (error.status === 422) return 'Điều kiện tìm kiếm hoặc lọc tài liệu không hợp lệ.'
-    if (error.status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.'
+    if (error.status >= 500) return 'Hệ thống đang gặp sự cố. Vui lòng thử lại sau.'
   }
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   return context === 'detail'
     ? 'Không thể tải chi tiết tài liệu lúc này.'

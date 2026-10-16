@@ -92,7 +92,7 @@ export function buildDocumentStatusMessages(counts = {}) {
     messages.push(`${counts.noChunks} tài liệu đã xử lý nhưng chưa có đoạn nội dung.`)
   }
   if (counts.unavailable > 0) {
-    messages.push(`Không thể kiểm tra trạng thái của ${counts.unavailable} tài liệu do lỗi kết nối hoặc máy chủ.`)
+    messages.push(`Không thể kiểm tra trạng thái của ${counts.unavailable} tài liệu do lỗi kết nối hoặc hệ thống.`)
   }
   if (counts.deleted > 0) {
     messages.push(`${counts.deleted} tài liệu không còn tồn tại hoặc quyền truy cập đã thay đổi.`)
@@ -175,10 +175,10 @@ export function validateGeneratedSummary(response, documentId, summaryType) {
 
 export function getSummaryErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend. Vui lòng kiểm tra mạng và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 409) {

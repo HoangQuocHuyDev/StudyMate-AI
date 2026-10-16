@@ -211,7 +211,7 @@ function AdminUsers() {
         <div>
           <p>Quản lý tài khoản</p>
           <h2 id="admin-users-title">Danh sách người dùng</h2>
-          <span>Xem và kiểm soát trạng thái tài khoản bằng dữ liệu trực tiếp từ Backend.</span>
+          <span>Xem và kiểm soát trạng thái các tài khoản trong hệ thống.</span>
         </div>
         <strong>{data ? `${data.total} tài khoản` : 'Đang đồng bộ'}</strong>
       </div>

@@ -10,10 +10,10 @@ import {
 
 
 test('RAG status labels are displayed in Vietnamese', () => {
-  assert.equal(getRagStatusPresentation('PENDING').label, 'Chưa lập chỉ mục')
-  assert.equal(getRagStatusPresentation('INDEXING').label, 'Đang lập chỉ mục')
+  assert.equal(getRagStatusPresentation('PENDING').label, 'Chưa sẵn sàng cho AI')
+  assert.equal(getRagStatusPresentation('INDEXING').label, 'Đang chuẩn bị cho AI')
   assert.equal(getRagStatusPresentation('READY').label, 'Sẵn sàng hỏi đáp')
-  assert.equal(getRagStatusPresentation('FAILED').label, 'Lập chỉ mục thất bại')
+  assert.equal(getRagStatusPresentation('FAILED').label, 'Chuẩn bị cho AI thất bại')
 })
 
 for (const ragStatus of ['PENDING', 'FAILED']) {

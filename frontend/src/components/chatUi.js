@@ -61,9 +61,9 @@ export function getChatDocumentStatusLabel(document) {
     ready: 'Sẵn sàng hỏi đáp',
     not_processed: 'Chưa xử lý',
     no_chunks: 'Chưa có nội dung',
-    not_indexed: 'Chưa lập chỉ mục',
-    indexing: 'Đang lập chỉ mục',
-    index_failed: 'Lập chỉ mục thất bại',
+    not_indexed: 'Chưa sẵn sàng cho AI',
+    indexing: 'Đang chuẩn bị cho AI',
+    index_failed: 'Chuẩn bị cho AI thất bại',
     unavailable: 'Không kiểm tra được trạng thái',
   }
   return labels[document?.chat_status] ?? 'Chưa sẵn sàng'
@@ -90,10 +90,10 @@ export function buildChatStatusMessages(documents) {
   }
   add('not_processed', 'chưa xử lý xong.')
   add('no_chunks', 'chưa có đoạn nội dung để tra cứu.')
-  add('not_indexed', 'chưa được lập chỉ mục AI.')
-  add('indexing', 'đang được lập chỉ mục AI.')
-  add('index_failed', 'lập chỉ mục AI thất bại.')
-  add('unavailable', 'không thể kiểm tra trạng thái do lỗi mạng hoặc máy chủ.')
+  add('not_indexed', 'chưa được chuẩn bị cho AI.')
+  add('indexing', 'đang được chuẩn bị cho AI.')
+  add('index_failed', 'chuẩn bị cho AI thất bại.')
+  add('unavailable', 'không thể kiểm tra trạng thái do lỗi kết nối hoặc hệ thống.')
   return messages
 }
 
@@ -119,10 +119,10 @@ export function getQuestionValidationMessage(question) {
 
 export function getChatErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend. Vui lòng kiểm tra mạng và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 429) {

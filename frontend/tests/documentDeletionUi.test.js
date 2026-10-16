@@ -41,7 +41,7 @@ test('network uncertainty does not claim the document was not deleted', () => {
   assert.doesNotMatch(message, /chưa bị xóa/i)
   assert.equal(
     getDocumentDeletionErrorMessage(new ApiConfigurationError('secret')),
-    'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.',
+    'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.',
   )
 })
 

@@ -1107,7 +1107,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           <div className="chat-page__heading">
             <p>Trò chuyện với tài liệu</p>
             <h1>Hỏi đáp AI</h1>
-            <span>Đặt câu hỏi và nhận câu trả lời có trích dẫn từ tài liệu học tập đã lập chỉ mục.</span>
+            <span>Đặt câu hỏi và nhận câu trả lời có nguồn tham khảo từ tài liệu học tập đã sẵn sàng.</span>
           </div>
 
           <div className="chat-workspace">
@@ -1144,7 +1144,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                 <div className="chat-panel-state">
                   <Icon name="library" size={24} />
                   <strong>Chưa có tài liệu sẵn sàng</strong>
-                  <span>Hãy xử lý và lập chỉ mục AI cho tài liệu trước.</span>
+                  <span>Hãy xử lý và chuẩn bị tài liệu cho AI trước.</span>
                   <a href="/documents">Đến trang Tài liệu</a>
                 </div>
               ) : (
@@ -1252,7 +1252,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                   <strong>Trợ lý StudyMate</strong>
                   <span><i />{canAsk ? `Đang hỏi: ${selectedDocument.title}` : 'Chọn tài liệu để bắt đầu'}</span>
                 </div>
-                <span className="chat-conversation__mode">RAG · Có trích dẫn</span>
+                <span className="chat-conversation__mode">Trả lời từ tài liệu · Có nguồn</span>
               </div>
 
               <div
@@ -1273,7 +1273,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                   <div className="chat-welcome">
                     <div className="chat-welcome__icon"><Icon name="sparkle" size={28} /></div>
                     <h2>{canAsk ? 'Bạn muốn tìm hiểu điều gì từ tài liệu này?' : 'Chưa có tài liệu sẵn sàng hỏi đáp'}</h2>
-                    <p>{canAsk ? 'Hãy đặt câu hỏi hoặc chọn một gợi ý để bắt đầu cuộc trò chuyện.' : 'Xử lý và lập chỉ mục AI cho tài liệu tại trang Tài liệu trước khi đặt câu hỏi.'}</p>
+                    <p>{canAsk ? 'Hãy đặt câu hỏi hoặc chọn một gợi ý để bắt đầu cuộc trò chuyện.' : 'Hãy xử lý và chuẩn bị tài liệu cho AI tại trang Tài liệu trước khi đặt câu hỏi.'}</p>
                     {canAsk && (
                       <div className="chat-suggestions">
                         {suggestions.map((suggestion) => (

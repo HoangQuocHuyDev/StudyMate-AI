@@ -200,7 +200,7 @@ for (const [status, pattern] of [
   [404, /không còn tồn tại/],
   [409, /bảo vệ quản trị viên/],
   [422, /không hợp lệ/],
-  [500, /Máy chủ/],
+  [500, /Hệ thống/],
 ]) {
   test(`HTTP ${status} has a safe Vietnamese Admin Users message`, () => {
     const error = new ApiHttpError('raw secret', {

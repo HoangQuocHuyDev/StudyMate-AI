@@ -38,7 +38,7 @@ export class ApiNetworkError extends Error {
 function buildUrl(path) {
   if (!API_BASE_URL) {
     throw new ApiConfigurationError(
-      'VITE_API_BASE_URL chưa được cấu hình cho Frontend.',
+      'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.',
     )
   }
 
@@ -84,7 +84,7 @@ function formatValidationError(error) {
   return location ? `${location}: ${message}` : message
 }
 
-function getErrorMessage(data, response) {
+function getErrorMessage(data) {
   const detail = data?.detail
 
   if (typeof detail === 'string' && detail.trim()) return detail
@@ -100,7 +100,7 @@ function getErrorMessage(data, response) {
 
   if (typeof data === 'string' && data.trim()) return data
 
-  return `Yêu cầu thất bại (${response.status} ${response.statusText})`.trim()
+  return 'Yêu cầu chưa thể hoàn tất. Vui lòng thử lại.'
 }
 
 export async function request(path, options = {}) {
@@ -134,7 +134,7 @@ export async function request(path, options = {}) {
     if (error?.name === 'AbortError') throw error
 
     throw new ApiNetworkError(
-      'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
+      'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.',
       { cause: error },
     )
   }
@@ -142,7 +142,7 @@ export async function request(path, options = {}) {
   const data = await parseResponse(response, response.ok ? responseType : 'auto')
   if (!response.ok) {
     unauthorizedResponses.handle(unauthorizedSnapshot, response.status)
-    throw new ApiHttpError(getErrorMessage(data, response), {
+    throw new ApiHttpError(getErrorMessage(data), {
       status: response.status,
       statusText: response.statusText,
       data,

@@ -9,7 +9,7 @@ export const ADMIN_STATISTICS = Object.freeze([
   { key: 'user_count', label: 'Tổng người dùng', description: 'Gồm tài khoản USER và ADMIN', icon: 'users', tone: 'blue' },
   { key: 'document_count', label: 'Tổng tài liệu', description: 'Tài liệu hiện còn trong hệ thống', icon: 'documents', tone: 'cyan' },
   { key: 'chat_session_count', label: 'Tổng cuộc hội thoại', description: 'Phiên hỏi đáp thuộc tài liệu hợp lệ', icon: 'chat', tone: 'violet' },
-  { key: 'processing_document_count', label: 'Tài liệu đang xử lý', description: 'Đang xử lý nội dung hoặc lập chỉ mục', icon: 'history', tone: 'amber' },
+  { key: 'processing_document_count', label: 'Tài liệu đang xử lý', description: 'Đang xử lý nội dung hoặc chuẩn bị cho AI', icon: 'history', tone: 'amber' },
 ])
 
 export const ADMIN_NAVIGATION = Object.freeze([
@@ -43,7 +43,7 @@ const ACTIVITY_PRESENTATION = Object.freeze({
   },
   DOCUMENT_INDEXED: {
     icon: 'sparkle', tone: 'violet',
-    title: ({ document_id: documentId }) => `Tài liệu #${documentId} đã lập chỉ mục`,
+    title: ({ document_id: documentId }) => `Tài liệu #${documentId} đã sẵn sàng cho AI`,
     detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Người dùng #${userId}`,
   },
   SUMMARY_CREATED: {
@@ -223,10 +223,10 @@ export function getAdminDashboardErrorMessage(error) {
     if (error.status >= 500) return 'Hệ thống chưa thể tải dữ liệu quản trị. Vui lòng thử lại.'
   }
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend. Vui lòng kiểm tra kết nối và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   return 'Không thể tải dữ liệu quản trị lúc này.'
 }

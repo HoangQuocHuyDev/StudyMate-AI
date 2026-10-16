@@ -77,7 +77,7 @@ test('RAG statuses remain visible and are classified distinctly', () => {
 
   const unavailable = unavailableChatDocument(document)
   assert.equal(unavailable.chat_status, 'unavailable')
-  assert.match(buildChatStatusMessages([unavailable]).join(' '), /lỗi mạng hoặc máy chủ/i)
+  assert.match(buildChatStatusMessages([unavailable]).join(' '), /lỗi kết nối hoặc hệ thống/i)
   assert.equal(getRagStatusFailureKind(new ApiHttpError('hidden', {
     status: 404,
     statusText: 'Not Found',

@@ -215,7 +215,7 @@ function SummaryResult({ copied, documentName, error, isGenerating, isLoading, o
         <div><p>Bản tóm tắt</p><h3>{documentName}</h3></div><span>{typeLabel}</span>
       </div>
       <div className="summary-result__meta">
-        {result.model_name && <span>Model: <strong>{result.model_name}</strong></span>}
+        {result.model_name && <span>Mô hình AI: <strong>{result.model_name}</strong></span>}
         {result.created_at && <span>Tạo lúc: <strong>{formatDateTime(result.created_at)}</strong></span>}
       </div>
       <div className="summary-result__content chat-markdown"><AssistantMarkdown content={result.content} /></div>

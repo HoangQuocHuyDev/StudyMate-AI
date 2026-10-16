@@ -33,10 +33,10 @@ export function documentDeletionUiReducer(current, action) {
 
 export function getDocumentDeletionErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không nhận được xác nhận từ Backend. Tài liệu có thể đang được hệ thống tiếp tục xóa; hãy làm mới danh sách trước khi thử lại.'
+    return 'Chưa nhận được xác nhận xóa. Tài liệu có thể đang được hệ thống xử lý; hãy làm mới danh sách trước khi thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 401) {
@@ -46,10 +46,10 @@ export function getDocumentDeletionErrorMessage(error) {
       return 'Tài liệu không còn tồn tại hoặc bạn không có quyền truy cập.'
     }
     if (error.status === 409) {
-      return 'Tài liệu đang được xử lý, lập chỉ mục hoặc có một yêu cầu xóa khác đang thực hiện.'
+      return 'Tài liệu đang được xử lý, đang được chuẩn bị cho AI hoặc có một yêu cầu xóa khác đang thực hiện.'
     }
     if (error.status >= 500) {
-      return 'Backend chưa xác nhận hoàn tất. Tài liệu có thể đang được hệ thống tiếp tục xóa; hãy làm mới danh sách trước khi thử lại.'
+      return 'Chưa nhận được xác nhận hoàn tất. Tài liệu có thể đang được hệ thống xử lý; hãy làm mới danh sách trước khi thử lại.'
     }
   }
   return 'Không thể xác nhận kết quả xóa tài liệu lúc này. Vui lòng làm mới danh sách trước khi thử lại.'

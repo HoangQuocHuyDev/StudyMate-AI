@@ -27,19 +27,19 @@ function getSessionErrorMessage(error) {
   }
 
   if (error instanceof ApiHttpError && error.status === 503) {
-    return 'Máy chủ tạm thời không thể xác minh tài khoản. Vui lòng thử lại.'
+    return 'Hệ thống tạm thời không thể xác minh tài khoản. Vui lòng thử lại.'
   }
 
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến máy chủ để xác minh tài khoản.'
+    return 'Không thể kết nối đến hệ thống để xác minh tài khoản.'
   }
 
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ API hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
 
   if (error instanceof InvalidCurrentUserResponseError) {
-    return 'Không thể xác minh thông tin người dùng từ phản hồi máy chủ.'
+    return 'Không thể xác minh thông tin tài khoản. Vui lòng thử lại.'
   }
 
   return 'Không thể xác minh phiên đăng nhập lúc này.'
@@ -145,7 +145,7 @@ export function AuthProvider({ children }) {
   const loginSession = useCallback(async (accessToken) => {
     if (typeof accessToken !== 'string' || !accessToken.trim()) {
       logout()
-      const message = 'Không thể xác minh phiên đăng nhập vì token không hợp lệ.'
+      const message = 'Không thể xác minh phiên đăng nhập. Vui lòng đăng nhập lại.'
       setError(message)
       throw new AuthSessionError(message)
     }

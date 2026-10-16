@@ -142,13 +142,13 @@ export function getAdminUsersErrorMessage(error) {
       return 'Không thể thay đổi trạng thái tài khoản do quy tắc bảo vệ quản trị viên.'
     }
     if (error.status === 422) return 'Yêu cầu cập nhật trạng thái không hợp lệ.'
-    if (error.status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.'
+    if (error.status >= 500) return 'Hệ thống đang gặp sự cố. Vui lòng thử lại sau.'
   }
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   return 'Không thể hoàn tất thao tác quản lý người dùng lúc này.'
 }

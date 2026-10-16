@@ -147,10 +147,10 @@ export function dashboardOverviewReducer(state, action) {
 
 export function getDashboardOverviewErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend để tải số liệu tổng quan.'
+    return 'Không thể kết nối để tải số liệu tổng quan. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 401) {
@@ -228,10 +228,10 @@ export function dashboardDocumentsReducer(state, action) {
 
 export function getDashboardDocumentsErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend để tải tài liệu gần đây.'
+    return 'Không thể kết nối để tải tài liệu gần đây. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 401) {

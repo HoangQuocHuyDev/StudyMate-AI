@@ -177,12 +177,12 @@ function Register() {
       } else if (error instanceof ApiNetworkError) {
         setNotice({
           type: 'error',
-          message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra Backend và thử lại.',
+          message: 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.',
         })
       } else if (error instanceof ApiConfigurationError) {
         setNotice({
           type: 'error',
-          message: 'Frontend chưa được cấu hình địa chỉ API.',
+          message: 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.',
         })
       } else if (error instanceof ApiHttpError) {
         setNotice({

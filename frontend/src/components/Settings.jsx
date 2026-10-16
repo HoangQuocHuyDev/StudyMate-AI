@@ -30,17 +30,17 @@ function SectionHeading({ id, icon, title, description }) {
 
 function getRequestErrorMessage(error, fallback) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ API hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError && error.status === 400) return error.message
   if (error instanceof ApiHttpError && error.status === 422) {
     return 'Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại.'
   }
   if (error instanceof ApiHttpError && error.status >= 500) {
-    return 'Máy chủ chưa thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.'
+    return 'Hệ thống chưa thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.'
   }
   if (error instanceof ApiHttpError && error.status !== 401) return fallback
   return fallback

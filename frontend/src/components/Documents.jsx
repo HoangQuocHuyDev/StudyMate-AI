@@ -22,6 +22,7 @@ import {
   getDocuments,
   indexDocument,
   processDocument,
+  previewDocumentDocx,
   uploadDocument,
   viewDocumentPdf,
 } from '../services/documentService'
@@ -43,6 +44,16 @@ import {
   revokeDocumentObjectUrl,
   triggerDocumentDownload,
 } from './documentFileUi'
+import {
+  getDocxPreviewErrorMessage,
+  validateDocxPreviewResponse,
+} from './documentPreviewUi'
+import {
+  clearDocxPreview,
+  getFormattedDocxErrorMessage,
+  renderDocxPreview,
+  validateDocxRenderBlob,
+} from './docxFormattedPreview'
 import {
   createDocumentAutoUploadController,
   getSingleDocumentUploadFile,
@@ -96,26 +107,26 @@ function formatMetric(value, unit) {
 
 function getUploadErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend. Vui lòng kiểm tra kết nối và thử lại.'
+    return 'Không thể kết nối đến hệ thống. Vui lòng kiểm tra mạng và thử lại.'
   }
 
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
 
   if (error instanceof ApiHttpError) {
     const messages = {
       400: 'File hoặc thông tin tài liệu không hợp lệ. Chỉ hỗ trợ PDF và DOCX.',
       401: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.',
-      413: 'File vượt quá giới hạn dung lượng mà Backend cho phép.',
-      415: 'Định dạng file không được Backend hỗ trợ.',
+      413: 'File vượt quá giới hạn dung lượng cho phép.',
+      415: 'Định dạng file không được hỗ trợ.',
       422: 'Thông tin tải lên bị thiếu hoặc không đúng định dạng.',
       500: 'Hệ thống đang gặp lỗi. Vui lòng thử lại sau.',
     }
 
     if (messages[error.status]) return messages[error.status]
     if (error.status >= 500) return messages[500]
-    return `Không thể tải tài liệu lên (HTTP ${error.status}).`
+    return 'Không thể tải tài liệu lên lúc này. Vui lòng thử lại.'
   }
 
   return 'Không thể tải tài liệu lên lúc này. Vui lòng thử lại.'
@@ -123,11 +134,11 @@ function getUploadErrorMessage(error) {
 
 function getDocumentListErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend để tải danh sách tài liệu.'
+    return 'Không thể tải danh sách tài liệu. Vui lòng kiểm tra mạng và thử lại.'
   }
 
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
 
   if (error instanceof ApiHttpError) {
@@ -147,10 +158,10 @@ function getDocumentListErrorMessage(error) {
 
 function getProcessingErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến Backend để xử lý tài liệu.'
+    return 'Không thể xử lý tài liệu. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     const messages = {
@@ -182,10 +193,10 @@ function getStatusErrorMessage(error) {
 function getFileActionErrorMessage(error, action) {
   const verb = action === 'view' ? 'xem' : 'tải xuống'
   if (error instanceof ApiNetworkError) {
-    return `Không thể kết nối đến Backend để ${verb} tài liệu.`
+    return `Không thể ${verb} tài liệu. Vui lòng kiểm tra mạng và thử lại.`
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 401) return 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.'
@@ -306,6 +317,58 @@ async function hydrateDocumentStatuses(documents, { accessToken, signal }) {
   return hydrated
 }
 
+function FormattedDocxPreview({ blob, title }) {
+  const containerRef = useRef(null)
+  const [renderState, setRenderState] = useState({ state: 'loading', error: '' })
+
+  useEffect(() => {
+    const container = containerRef.current
+    let isActive = true
+
+    renderDocxPreview(blob, container)
+      .then(() => {
+        if (isActive) setRenderState({ state: 'ready', error: '' })
+      })
+      .catch((error) => {
+        if (!isActive) return
+        clearDocxPreview(container)
+        setRenderState({
+          state: 'error',
+          error: getFormattedDocxErrorMessage(error),
+        })
+      })
+
+    return () => {
+      isActive = false
+      clearDocxPreview(container)
+    }
+  }, [blob])
+
+  return (
+    <div className="document-viewer__docx document-viewer__docx--formatted" tabIndex="0" aria-label={`Nội dung định dạng Word của ${title}`}>
+      {renderState.state === 'loading' && (
+        <div className="document-viewer__state document-viewer__state--overlay" role="status" aria-live="polite">
+          <span className="documents-list-spinner" aria-hidden="true" />
+          <strong>Đang dựng định dạng tài liệu Word...</strong>
+        </div>
+      )}
+      {renderState.state === 'error' && (
+        <div className="document-viewer__state document-viewer__state--error" role="alert">
+          <Icon name="file" size={28} />
+          <strong>Không thể hiển thị định dạng Word</strong>
+          <p>{renderState.error}</p>
+          <p>Hãy chọn “Xem dạng văn bản” ở phía trên.</p>
+        </div>
+      )}
+      <div
+        className="document-viewer__docx-render"
+        ref={containerRef}
+        hidden={renderState.state === 'error'}
+      />
+    </div>
+  )
+}
+
 function DocumentCard({
   deletionPending,
   document,
@@ -369,8 +432,8 @@ function DocumentCard({
               </span>
               <span>
                 {document.indexed_at
-                  ? `Lập chỉ mục ${formatCreatedAt(document.indexed_at)}`
-                  : 'Chưa có thời điểm lập chỉ mục'}
+                  ? `Chuẩn bị cho AI ${formatCreatedAt(document.indexed_at)}`
+                  : 'Chưa có thời điểm chuẩn bị cho AI'}
               </span>
             </div>
             <dl className="document-card__metrics">
@@ -383,7 +446,7 @@ function DocumentCard({
         )}
 
         <div className="document-card__actions">
-          {document.file_type === 'PDF' && (
+          {['PDF', 'DOCX'].includes(document.file_type) && (
             <button
               type="button"
               onClick={() => onView(document)}
@@ -420,14 +483,14 @@ function DocumentCard({
               disabled={isBusy}
             >
               {isIndexing ? <span className="document-action-spinner" aria-hidden="true" /> : <Icon name="sparkle" size={15} />}
-              {isIndexing ? 'Đang lập chỉ mục...' : document.rag_status === 'FAILED' ? 'Thử lập chỉ mục lại' : 'Lập chỉ mục AI'}
+              {isIndexing ? 'Đang chuẩn bị...' : document.rag_status === 'FAILED' ? 'Thử chuẩn bị lại' : 'Chuẩn bị cho AI'}
             </button>
           )}
           {!canProcess && document.status === 'PROCESSING' && (
             <span className="document-card__action-note"><Icon name="lock" size={14} />Tác vụ đang chạy</span>
           )}
           {!canIndex && document.rag_status === 'INDEXING' && (
-            <span className="document-card__action-note"><Icon name="lock" size={14} />Đang lập chỉ mục AI</span>
+            <span className="document-card__action-note"><Icon name="lock" size={14} />Đang chuẩn bị cho AI</span>
           )}
           {!canIndex && document.rag_status === 'READY' && (
             <span className="document-card__action-note document-card__action-note--ready"><Icon name="check" size={14} />Sẵn sàng hỏi đáp</span>
@@ -487,7 +550,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const [listRefreshVersion, setListRefreshVersion] = useState(0)
   const [documentOperations, setDocumentOperations] = useState({})
   const [fileOperations, setFileOperations] = useState({})
-  const [pdfViewer, setPdfViewer] = useState(null)
+  const [documentViewer, setDocumentViewer] = useState(null)
   const [deletionState, dispatchDeletion] = useReducer(
     documentDeletionUiReducer,
     initialDocumentDeletionUiState,
@@ -509,6 +572,9 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const indexingInFlightRef = useRef(new Set())
   const fileRequestsRef = useRef(new Map())
   const fileActionsInFlightRef = useRef(new Set())
+  const viewerRequestRef = useRef({ id: 0, documentId: null, controller: null })
+  const viewerPanelRef = useRef(null)
+  const viewerCloseRef = useRef(null)
   const deletionRequestRef = useRef({ id: 0, documentId: null, controller: null })
   const deletionGuardRef = useRef(createDocumentDeletionGuard())
   const autoUploadControllerRef = useRef(createDocumentAutoUploadController())
@@ -519,6 +585,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const currentLocationKeyRef = useRef(currentLocationKey)
 
   const isUploading = uploadState === 'uploading'
+  const isViewerOpen = documentViewer !== null
   const uploadPrimaryText = isUploading
     ? 'Đang tải tài liệu lên...'
     : uploadMessage || 'Chọn tài liệu hoặc kéo thả vào đây'
@@ -573,6 +640,12 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       }
       fileRequests.clear()
       fileActionsInFlight.clear()
+      viewerRequestRef.current.controller?.abort()
+      viewerRequestRef.current = {
+        id: viewerRequestRef.current.id + 1,
+        documentId: null,
+        controller: null,
+      }
       deletionRequest.id += 1
       deletionRequest.controller?.abort()
       Object.assign(deletionRequest, { documentId: null, controller: null })
@@ -581,19 +654,62 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   }, [])
 
   useEffect(() => {
-    if (!pdfViewer?.url) return undefined
-    const objectUrl = pdfViewer.url
+    if (!documentViewer?.url) return undefined
+    const objectUrl = documentViewer.url
     return () => revokeDocumentObjectUrl(objectUrl)
-  }, [pdfViewer?.url])
+  }, [documentViewer?.url])
 
   useEffect(() => {
-    if (!pdfViewer) return undefined
+    if (!isViewerOpen) return undefined
+    const previouslyFocused = document.activeElement
+    viewerCloseRef.current?.focus()
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') setPdfViewer(null)
+      if (event.key === 'Escape') {
+        const active = viewerRequestRef.current
+        active.controller?.abort()
+        viewerRequestRef.current = {
+          id: active.id + 1,
+          documentId: null,
+          controller: null,
+        }
+        if (active.controller && active.documentId) {
+          fileRequestsRef.current.delete(active.documentId)
+          fileActionsInFlightRef.current.delete(active.documentId)
+          setFileOperations((current) => {
+            const next = { ...current }
+            delete next[active.documentId]
+            return next
+          })
+        }
+        setDocumentViewer(null)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusable = Array.from(
+        viewerPanelRef.current?.querySelectorAll(
+          'button:not(:disabled), iframe, [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      )
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [pdfViewer])
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus()
+      }
+    }
+  }, [isViewerOpen])
 
   useEffect(() => {
     if (!deletionDocumentId) return undefined
@@ -690,7 +806,14 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     fileRequestsRef.current.clear()
     fileActionsInFlightRef.current.clear()
     setFileOperations({})
-    setPdfViewer(null)
+    const viewerRequest = viewerRequestRef.current
+    viewerRequest.controller?.abort()
+    viewerRequestRef.current = {
+      id: viewerRequest.id + 1,
+      documentId: null,
+      controller: null,
+    }
+    setDocumentViewer(null)
     const requestId = listRequestRef.current.id + 1
     const controller = new AbortController()
     listRequestRef.current.controller?.abort()
@@ -963,7 +1086,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     indexingInFlightRef.current.add(documentId)
     setDocumentOperations((current) => ({
       ...current,
-      [documentId]: { state: 'indexing', message: 'Đang lập chỉ mục AI...' },
+      [documentId]: { state: 'indexing', message: 'Đang chuẩn bị tài liệu cho AI...' },
     }))
 
     const isCurrentRequest = () => (
@@ -1009,7 +1132,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           ...current,
           [documentId]: {
             state: 'success',
-            message: 'Lập chỉ mục AI thành công nhưng chưa thể làm mới trạng thái chi tiết.',
+            message: 'Đã chuẩn bị tài liệu cho AI nhưng chưa thể làm mới trạng thái chi tiết.',
           },
         }))
         return
@@ -1020,7 +1143,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         ...current,
         [documentId]: {
           state: 'success',
-          message: 'Lập chỉ mục AI thành công. Tài liệu đã sẵn sàng hỏi đáp.',
+          message: 'Đã chuẩn bị tài liệu cho AI. Tài liệu đã sẵn sàng hỏi đáp.',
         },
       }))
     } catch (error) {
@@ -1079,37 +1202,220 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     fileActionsInFlightRef.current.delete(documentId)
   }
 
+  const closeDocumentViewer = () => {
+    const active = viewerRequestRef.current
+    active.controller?.abort()
+    viewerRequestRef.current = {
+      id: active.id + 1,
+      documentId: null,
+      controller: null,
+    }
+    if (active.controller && active.documentId) {
+      fileRequestsRef.current.delete(active.documentId)
+      fileActionsInFlightRef.current.delete(active.documentId)
+      setFileOperations((current) => {
+        const next = { ...current }
+        delete next[active.documentId]
+        return next
+      })
+    }
+    setDocumentViewer(null)
+  }
+
   const handleViewDocument = async (document) => {
-    if (document.file_type !== 'PDF') return
+    if (!['PDF', 'DOCX'].includes(document.file_type)) return
+
+    const previousViewerRequest = viewerRequestRef.current
+    previousViewerRequest.controller?.abort()
+    if (previousViewerRequest.controller && previousViewerRequest.documentId) {
+      fileRequestsRef.current.delete(previousViewerRequest.documentId)
+      fileActionsInFlightRef.current.delete(previousViewerRequest.documentId)
+      setFileOperations((current) => {
+        const next = { ...current }
+        delete next[previousViewerRequest.documentId]
+        return next
+      })
+    }
+
     const action = beginFileAction(document.id, 'viewing')
     if (!action) return
     const { requestId, controller, listRequestId } = action
+    const viewerRequestId = previousViewerRequest.id + 1
+    viewerRequestRef.current = {
+      id: viewerRequestId,
+      documentId: document.id,
+      controller,
+    }
+    setDocumentViewer({
+      document,
+      kind: document.file_type,
+      state: 'loading',
+      viewMode: document.file_type === 'DOCX' ? 'formatted' : null,
+      blob: null,
+      content: '',
+      url: null,
+      error: '',
+    })
+
+    const isCurrentViewerRequest = () => (
+      viewerRequestRef.current.id === viewerRequestId
+      && viewerRequestRef.current.documentId === document.id
+      && isCurrentFileAction(document.id, requestId, listRequestId)
+    )
 
     try {
-      const [detail, blob] = await Promise.all([
-        getDocumentDetail(document.id, { accessToken, signal: controller.signal }),
-        viewDocumentPdf(document.id, { accessToken, signal: controller.signal }),
-      ])
-      const objectUrl = createDocumentObjectUrl(blob)
-      if (!isCurrentFileAction(document.id, requestId, listRequestId)) {
-        revokeDocumentObjectUrl(objectUrl)
-        return
+      if (document.file_type === 'PDF') {
+        const [detail, blob] = await Promise.all([
+          getDocumentDetail(document.id, { accessToken, signal: controller.signal }),
+          viewDocumentPdf(document.id, { accessToken, signal: controller.signal }),
+        ])
+        const objectUrl = createDocumentObjectUrl(blob)
+        if (!isCurrentViewerRequest()) {
+          revokeDocumentObjectUrl(objectUrl)
+          return
+        }
+        setDocumentViewer({
+          document: detail,
+          kind: 'PDF',
+          state: 'ready',
+          viewMode: null,
+          blob: null,
+          content: '',
+          url: objectUrl,
+          error: '',
+        })
+      } else {
+        const blob = validateDocxRenderBlob(await downloadDocument(document.id, {
+          accessToken,
+          signal: controller.signal,
+        }))
+        if (!isCurrentViewerRequest()) return
+        setDocumentViewer({
+          document,
+          kind: 'DOCX',
+          state: 'ready',
+          viewMode: 'formatted',
+          blob,
+          content: '',
+          url: null,
+          error: '',
+        })
       }
-      setPdfViewer({ document: detail, url: objectUrl })
       setFileOperations((current) => {
         const next = { ...current }
         delete next[document.id]
         return next
       })
     } catch (error) {
-      if (error?.name === 'AbortError' || !isCurrentFileAction(document.id, requestId, listRequestId)) return
+      if (error?.name === 'AbortError' || !isCurrentViewerRequest()) return
+      const message = document.file_type === 'DOCX'
+        ? getFormattedDocxErrorMessage(error)
+        : getFileActionErrorMessage(error, 'view')
+      setDocumentViewer((current) => (
+        current?.document.id === document.id
+          ? { ...current, state: 'error', error: message }
+          : current
+      ))
       setFileOperations((current) => ({
         ...current,
-        [document.id]: { state: 'error', message: getFileActionErrorMessage(error, 'view') },
+        [document.id]: { state: 'error', message },
       }))
     } finally {
       finishFileAction(document.id, requestId)
+      if (viewerRequestRef.current.id === viewerRequestId) {
+        viewerRequestRef.current = {
+          id: viewerRequestId,
+          documentId: document.id,
+          controller: null,
+        }
+      }
     }
+  }
+
+  const handleLoadDocxTextPreview = async () => {
+    const currentViewer = documentViewer
+    const document = currentViewer?.document
+    if (currentViewer?.kind !== 'DOCX' || !document) return
+
+    const previousViewerRequest = viewerRequestRef.current
+    previousViewerRequest.controller?.abort()
+    const action = beginFileAction(document.id, 'viewing')
+    if (!action) return
+    const { requestId, controller, listRequestId } = action
+    const viewerRequestId = previousViewerRequest.id + 1
+    viewerRequestRef.current = {
+      id: viewerRequestId,
+      documentId: document.id,
+      controller,
+    }
+    setDocumentViewer((viewer) => (
+      viewer?.document.id === document.id
+        ? { ...viewer, state: 'loading', viewMode: 'text', error: '' }
+        : viewer
+    ))
+
+    const isCurrentViewerRequest = () => (
+      viewerRequestRef.current.id === viewerRequestId
+      && viewerRequestRef.current.documentId === document.id
+      && isCurrentFileAction(document.id, requestId, listRequestId)
+    )
+
+    try {
+      const preview = validateDocxPreviewResponse(
+        await previewDocumentDocx(document.id, {
+          accessToken,
+          signal: controller.signal,
+        }),
+        document.id,
+      )
+      if (!isCurrentViewerRequest()) return
+      setDocumentViewer((viewer) => (
+        viewer?.document.id === document.id
+          ? {
+              ...viewer,
+              document: { ...viewer.document, ...preview, id: preview.document_id },
+              state: 'ready',
+              viewMode: 'text',
+              content: preview.content,
+              error: '',
+            }
+          : viewer
+      ))
+      setFileOperations((current) => {
+        const next = { ...current }
+        delete next[document.id]
+        return next
+      })
+    } catch (error) {
+      if (error?.name === 'AbortError' || !isCurrentViewerRequest()) return
+      const message = getDocxPreviewErrorMessage(error)
+      setDocumentViewer((viewer) => (
+        viewer?.document.id === document.id
+          ? { ...viewer, state: 'error', viewMode: 'text', error: message }
+          : viewer
+      ))
+      setFileOperations((current) => ({
+        ...current,
+        [document.id]: { state: 'error', message },
+      }))
+    } finally {
+      finishFileAction(document.id, requestId)
+      if (viewerRequestRef.current.id === viewerRequestId) {
+        viewerRequestRef.current = {
+          id: viewerRequestId,
+          documentId: document.id,
+          controller: null,
+        }
+      }
+    }
+  }
+
+  const handleShowFormattedDocx = () => {
+    setDocumentViewer((viewer) => (
+      viewer?.kind === 'DOCX' && viewer.blob
+        ? { ...viewer, state: 'ready', viewMode: 'formatted', error: '' }
+        : viewer
+    ))
   }
 
   const handleDownloadDocument = async (document) => {
@@ -1165,9 +1471,17 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       delete next[documentId]
       return next
     })
-    setPdfViewer((current) => (
-      current?.document.id === documentId ? null : current
-    ))
+    setDocumentViewer((current) => {
+      if (current?.document.id !== documentId) return current
+      const active = viewerRequestRef.current
+      active.controller?.abort()
+      viewerRequestRef.current = {
+        id: active.id + 1,
+        documentId: null,
+        controller: null,
+      }
+      return null
+    })
     dispatchDeletion({ type: 'complete' })
     setDeletionNotice({ type: 'success', message })
     if (shouldMoveToPreviousPage) {
@@ -1269,10 +1583,10 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           <section className="document-upload-panel" aria-labelledby="document-upload-title">
             <div className="document-upload-panel__heading">
               <div>
-                <p>Tải lên Backend</p>
+                <p>Tải tài liệu</p>
                 <h2 id="document-upload-title">Thêm tài liệu mới</h2>
               </div>
-              <span>PDF, DOCX · tối đa 10 MiB trên giao diện</span>
+              <span>PDF, DOCX · tối đa 10 MiB</span>
             </div>
 
             <div className="document-upload-form">
@@ -1440,19 +1754,90 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         </main>
       </div>
 
-      {pdfViewer && (
+      {documentViewer && (
         <div className="document-viewer" role="dialog" aria-modal="true" aria-labelledby="document-viewer-title">
-          <button className="document-viewer__backdrop" type="button" aria-label="Đóng trình xem tài liệu" onClick={() => setPdfViewer(null)} />
-          <section className="document-viewer__panel">
+          <button className="document-viewer__backdrop" type="button" aria-label="Đóng trình xem tài liệu" onClick={closeDocumentViewer} />
+          <section className="document-viewer__panel" ref={viewerPanelRef} aria-busy={documentViewer.state === 'loading'}>
             <header>
-              <div>
-                <span>Xem tài liệu PDF</span>
-                <h2 id="document-viewer-title">{pdfViewer.document.title}</h2>
-                <p>{pdfViewer.document.original_filename} · {formatFileSize(pdfViewer.document.file_size)}</p>
+              <div className="document-viewer__heading">
+                <span>{documentViewer.kind === 'PDF' ? 'Xem tài liệu PDF' : 'Xem trước tài liệu DOCX'}</span>
+                <h2 id="document-viewer-title">{documentViewer.document.title}</h2>
+                <p>{documentViewer.document.original_filename} · {formatFileSize(documentViewer.document.file_size)}</p>
               </div>
-              <button type="button" onClick={() => setPdfViewer(null)} aria-label="Đóng"><Icon name="close" size={19} /></button>
+              <div className="document-viewer__actions">
+                {documentViewer.kind === 'DOCX' && (
+                  <button
+                    className="document-viewer__mode"
+                    type="button"
+                    onClick={documentViewer.viewMode === 'text'
+                      ? handleShowFormattedDocx
+                      : handleLoadDocxTextPreview}
+                    disabled={
+                      documentViewer.state === 'loading'
+                      || (documentViewer.viewMode === 'text' && !documentViewer.blob)
+                    }
+                  >
+                    <Icon name="file" size={16} />
+                    {documentViewer.viewMode === 'text' ? 'Xem định dạng Word' : 'Xem dạng văn bản'}
+                  </button>
+                )}
+                {documentViewer.kind === 'DOCX' && (
+                  <button
+                    className="document-viewer__download"
+                    type="button"
+                    onClick={() => handleDownloadDocument(documentViewer.document)}
+                    disabled={documentViewer.state === 'loading' || fileOperations[documentViewer.document.id]?.state === 'downloading'}
+                  >
+                    {fileOperations[documentViewer.document.id]?.state === 'downloading'
+                      ? <span className="document-file-action-spinner" aria-hidden="true" />
+                      : <Icon name="download" size={16} />}
+                    {fileOperations[documentViewer.document.id]?.state === 'downloading' ? 'Đang tải...' : 'Tải xuống bản gốc'}
+                  </button>
+                )}
+                <button ref={viewerCloseRef} type="button" onClick={closeDocumentViewer} aria-label="Đóng"><Icon name="close" size={19} /></button>
+              </div>
             </header>
-            <iframe src={pdfViewer.url} title={`Nội dung ${pdfViewer.document.title}`} />
+            {documentViewer.state === 'loading' && (
+              <div className="document-viewer__state" role="status" aria-live="polite">
+                <span className="documents-list-spinner" aria-hidden="true" />
+                <strong>Đang tải nội dung xem trước...</strong>
+              </div>
+            )}
+            {documentViewer.state === 'error' && (
+              <div className="document-viewer__state document-viewer__state--error" role="alert">
+                <Icon name="file" size={28} />
+                <strong>Không thể xem trước tài liệu</strong>
+                <p>{documentViewer.error}</p>
+              </div>
+            )}
+            {documentViewer.state === 'ready' && documentViewer.kind === 'PDF' && (
+              <iframe src={documentViewer.url} title={`Nội dung ${documentViewer.document.title}`} />
+            )}
+            {documentViewer.state === 'ready'
+              && documentViewer.kind === 'DOCX'
+              && documentViewer.viewMode === 'formatted'
+              && (
+                <FormattedDocxPreview
+                  key={documentViewer.document.id}
+                  blob={documentViewer.blob}
+                  title={documentViewer.document.title}
+                />
+              )}
+            {documentViewer.state === 'ready'
+              && documentViewer.kind === 'DOCX'
+              && documentViewer.viewMode === 'text'
+              && (
+              <div className="document-viewer__docx" tabIndex="0" aria-label={`Nội dung văn bản của ${documentViewer.document.title}`}>
+                {documentViewer.content
+                  ? <div className="document-viewer__docx-content">{documentViewer.content}</div>
+                  : (
+                    <div className="document-viewer__state document-viewer__state--empty">
+                      <Icon name="file" size={30} />
+                      <strong>Tài liệu này chưa có nội dung văn bản để xem trước.</strong>
+                    </div>
+                  )}
+              </div>
+              )}
           </section>
         </div>
       )}

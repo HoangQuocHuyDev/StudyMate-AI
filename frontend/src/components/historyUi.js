@@ -101,10 +101,10 @@ export function formatHistoryDateTime(value) {
 
 export function getHistoryErrorMessage(error) {
   if (error instanceof ApiNetworkError) {
-    return 'Không thể kết nối đến máy chủ để tải lịch sử trò chuyện.'
+    return 'Không thể kết nối để tải lịch sử trò chuyện. Vui lòng kiểm tra mạng và thử lại.'
   }
   if (error instanceof ApiConfigurationError) {
-    return 'Frontend chưa được cấu hình địa chỉ Backend hợp lệ.'
+    return 'Ứng dụng chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.'
   }
   if (error instanceof ApiHttpError) {
     if (error.status === 401) {
