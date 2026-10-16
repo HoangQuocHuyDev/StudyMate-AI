@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigation } from '../navigation/NavigationContext'
-import { ApiHttpError } from '../services/apiClient'
 import { getChatHistory } from '../services/chatService'
 import Header from './Header'
 import { buildChatDeepLinkUrl } from './chatDeepLink'
@@ -65,7 +64,7 @@ function HistoryItem({ conversation, onOpen }) {
 }
 
 function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
-  const { accessToken, logout } = useAuth()
+  const { accessToken } = useAuth()
   const { navigate } = useNavigation()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -156,7 +155,6 @@ function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       const message = getHistoryErrorMessage(requestError)
       if (append) setLoadMoreError(message)
       else setError(message)
-      if (requestError instanceof ApiHttpError && requestError.status === 401) logout()
     } finally {
       if (append && requestRef.current.id === requestId) {
         loadMoreInFlightRef.current = false
@@ -171,7 +169,7 @@ function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         else setLoading(false)
       }
     }
-  }, [accessToken, debouncedQuery, logout, period])
+  }, [accessToken, debouncedQuery, period])
 
   useEffect(() => {
     // Fetching is the external synchronization performed by this effect.

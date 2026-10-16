@@ -34,7 +34,7 @@ function AdminSidebar({ activeView, isOpen, onChangeView, onClose }) {
         ))}
       </nav>
 
-      <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Dữ liệu minh họa</strong><span>Quyền giao diện được xác minh qua tài khoản hiện tại.</span></p></div>
+      <div className="admin-sidebar__notice"><Icon name="shield" size={17} /><p><strong>Dữ liệu hệ thống</strong><span>Quyền quản trị được xác minh qua tài khoản hiện tại.</span></p></div>
       <button className="admin-back-link admin-user-view-link" type="button" onClick={() => { onClose(); navigate('/') }}><Icon name="arrow" size={17} />Về giao diện người dùng</button>
       <button className="admin-back-link admin-logout-button" type="button" onClick={handleLogout} disabled={isLoggingOut}><Icon name="logout" size={17} />{isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}</button>
     </aside>

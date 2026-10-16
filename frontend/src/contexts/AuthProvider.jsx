@@ -9,6 +9,7 @@ import {
   ApiConfigurationError,
   ApiHttpError,
   ApiNetworkError,
+  registerUnauthorizedHandler,
 } from '../services/apiClient'
 import {
   getCurrentUser,
@@ -18,7 +19,7 @@ import {
 import { AuthContext, AuthSessionError } from './AuthContext'
 import { createLogoutController } from './authLogout'
 
-const emptySession = Object.freeze({ accessToken: null, user: null })
+const emptySession = Object.freeze({ accessToken: null, user: null, version: 0 })
 
 function getSessionErrorMessage(error) {
   if (error instanceof ApiHttpError && error.status === 401) {
@@ -51,15 +52,19 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null)
   const requestVersion = useRef(0)
   const sessionRef = useRef({ ...emptySession, version: 0 })
+  const unregisterUnauthorizedRef = useRef(null)
   const isMounted = useRef(true)
 
   const clearLocalSession = useCallback(() => {
+    unregisterUnauthorizedRef.current?.()
+    unregisterUnauthorizedRef.current = null
     requestVersion.current += 1
-    sessionRef.current = {
+    const clearedSession = {
       ...emptySession,
       version: requestVersion.current,
     }
-    setSession(emptySession)
+    sessionRef.current = clearedSession
+    setSession(clearedSession)
     setIsLoading(false)
     setIsLoggingOut(false)
     setError(null)
@@ -83,6 +88,8 @@ export function AuthProvider({ children }) {
     return () => {
       isMounted.current = false
       requestVersion.current += 1
+      unregisterUnauthorizedRef.current?.()
+      unregisterUnauthorizedRef.current = null
       sessionRef.current = {
         ...emptySession,
         version: requestVersion.current,
@@ -96,6 +103,45 @@ export function AuthProvider({ children }) {
     clearLocalSession()
   }, [clearLocalSession, logoutController])
 
+  const getSessionIdentity = useCallback(() => ({
+    accessToken: sessionRef.current.accessToken,
+    generation: sessionRef.current.version,
+  }), [])
+
+  const isCurrentSession = useCallback((identity) => Boolean(
+    identity
+    && identity.accessToken
+    && sessionRef.current.accessToken === identity.accessToken
+    && sessionRef.current.version === identity.generation
+  ), [])
+
+  const logoutCurrentSession = useCallback((identity) => {
+    if (!isCurrentSession(identity)) return false
+    logoutController.cancel()
+    clearLocalSession()
+    return true
+  }, [clearLocalSession, isCurrentSession, logoutController])
+
+  const updateCurrentUser = useCallback((nextUser, expectedAccessToken) => {
+    const currentSession = sessionRef.current
+    if (
+      !nextUser
+      || currentSession.accessToken !== expectedAccessToken
+      || currentSession.user?.id !== nextUser.id
+    ) return false
+
+    const nextSession = {
+      accessToken: currentSession.accessToken,
+      user: nextUser,
+    }
+    sessionRef.current = {
+      ...nextSession,
+      version: currentSession.version,
+    }
+    setSession(nextSession)
+    return true
+  }, [])
+
   const loginSession = useCallback(async (accessToken) => {
     if (typeof accessToken !== 'string' || !accessToken.trim()) {
       logout()
@@ -107,11 +153,13 @@ export function AuthProvider({ children }) {
     const currentRequest = requestVersion.current + 1
     requestVersion.current = currentRequest
     logoutController.cancel()
+    unregisterUnauthorizedRef.current?.()
+    unregisterUnauthorizedRef.current = null
     sessionRef.current = {
       ...emptySession,
       version: currentRequest,
     }
-    setSession(emptySession)
+    setSession({ ...emptySession, version: currentRequest })
     setIsLoggingOut(false)
     setError(null)
     setIsLoading(true)
@@ -121,19 +169,30 @@ export function AuthProvider({ children }) {
 
       if (requestVersion.current !== currentRequest) return null
 
-      const nextSession = { accessToken, user }
-      sessionRef.current = { ...nextSession, version: currentRequest }
+      const nextSession = { accessToken, user, version: currentRequest }
+      sessionRef.current = nextSession
+      unregisterUnauthorizedRef.current = registerUnauthorizedHandler(
+        (rejectedAccessToken) => {
+          const currentSession = sessionRef.current
+          if (
+            currentSession.version !== currentRequest
+            || currentSession.accessToken !== rejectedAccessToken
+          ) return
+          clearLocalSession()
+        },
+      )
       setSession(nextSession)
       return user
     } catch (requestError) {
       if (requestVersion.current !== currentRequest) return null
 
       const message = getSessionErrorMessage(requestError)
-      setSession(emptySession)
-      sessionRef.current = {
+      const failedSession = {
         ...emptySession,
         version: currentRequest,
       }
+      setSession(failedSession)
+      sessionRef.current = failedSession
       setError(message)
       throw new AuthSessionError(message, { cause: requestError })
     } finally {
@@ -141,7 +200,7 @@ export function AuthProvider({ children }) {
         setIsLoading(false)
       }
     }
-  }, [logout, logoutController])
+  }, [clearLocalSession, logout, logoutController])
 
   const value = useMemo(() => ({
     accessToken: session.accessToken,
@@ -153,6 +212,11 @@ export function AuthProvider({ children }) {
     loginSession,
     logout,
     logoutWithRevocation,
+    getSessionIdentity,
+    isCurrentSession,
+    logoutCurrentSession,
+    sessionGeneration: session.version,
+    updateCurrentUser,
   }), [
     error,
     isLoading,
@@ -160,6 +224,10 @@ export function AuthProvider({ children }) {
     loginSession,
     logout,
     logoutWithRevocation,
+    getSessionIdentity,
+    isCurrentSession,
+    logoutCurrentSession,
+    updateCurrentUser,
     session,
   ])
 

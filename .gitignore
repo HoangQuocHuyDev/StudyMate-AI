@@ -33,3 +33,18 @@ backend/storage/
 
 # Pytest temporary files
 .pytest_tmp/
+
+# Project-local temporary test artifacts
+/.tmp/
+/backend/.tmp/
+
+# Additional Python tooling
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# Vite internal cache
+.vite/

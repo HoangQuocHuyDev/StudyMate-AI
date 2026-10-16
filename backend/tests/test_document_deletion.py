@@ -54,6 +54,8 @@ from app.services.document_deletion import (
     DocumentDeletionExternalError,
     DocumentDeletionInfrastructureError,
     DocumentDeletionNotFoundError,
+    _advance_step,
+    _claim_job,
     delete_owned_document,
     recover_document_deletions,
 )
@@ -625,6 +627,182 @@ def test_explicit_recovery_sweep_continues_failed_job(
     assert vectors.delete_calls == []
     with factory() as session:
         assert session.get(Document, 1) is None
+
+
+def test_reclaimed_lease_fences_the_previous_worker(
+    deletion_environment: tuple[
+        TestClient, sessionmaker[Session], FakeVectorStore, FakeStorage
+    ],
+) -> None:
+    """A stale worker cannot advance a job after another worker reclaims it."""
+
+    _, factory, vectors, storage = deletion_environment
+    add_user(factory, 1)
+    storage_key = add_document(
+        factory, storage, vectors, document_id=1, user_id=1
+    )
+    stale_token = uuid4()
+    with factory() as session:
+        session.add(
+            DocumentDeletionJob(
+                document_id=1,
+                user_id=1,
+                storage_key=storage_key,
+                status=RUNNING,
+                current_step=VECTOR_CLEANUP,
+                attempt_count=1,
+                lease_token=stale_token,
+                lease_expires_at=datetime.now(timezone.utc)
+                - timedelta(seconds=1),
+            )
+        )
+        session.commit()
+
+    with factory() as session:
+        current_token = _claim_job(
+            session,
+            document_id=1,
+            user_id=1,
+            lease_seconds=60,
+        )
+
+    assert current_token != stale_token
+    with factory() as session, pytest.raises(DocumentDeletionConflictError):
+        _advance_step(
+            session,
+            document_id=1,
+            user_id=1,
+            lease_token=stale_token,
+            expected_step=VECTOR_CLEANUP,
+            next_step=FILE_CLEANUP,
+        )
+
+    with factory() as session:
+        job = session.scalar(select(DocumentDeletionJob))
+        assert job is not None
+        assert job.status == RUNNING
+        assert job.current_step == VECTOR_CLEANUP
+        assert job.lease_token == current_token
+        assert job.attempt_count == 2
+        assert session.get(Document, 1) is not None
+
+
+def test_recovery_skips_live_lease_and_preserves_unrelated_document(
+    deletion_environment: tuple[
+        TestClient, sessionmaker[Session], FakeVectorStore, FakeStorage
+    ],
+) -> None:
+    """A sweep only resumes claimable jobs and leaves other data untouched."""
+
+    _, factory, vectors, storage = deletion_environment
+    add_user(factory, 1)
+    failed_key = add_document(
+        factory, storage, vectors, document_id=1, user_id=1
+    )
+    live_key = add_document(
+        factory, storage, vectors, document_id=2, user_id=1
+    )
+    unrelated_key = add_document(
+        factory, storage, vectors, document_id=3, user_id=1
+    )
+    # FILE_CLEANUP means vector cleanup was already durably completed.
+    vectors.vectors.pop((1, 1))
+    with factory() as session:
+        session.add_all(
+            (
+                DocumentDeletionJob(
+                    document_id=1,
+                    user_id=1,
+                    storage_key=failed_key,
+                    status=FAILED,
+                    current_step=FILE_CLEANUP,
+                    attempt_count=1,
+                    last_error_code="file_cleanup_failed",
+                    last_error_at=datetime.now(timezone.utc),
+                ),
+                DocumentDeletionJob(
+                    document_id=2,
+                    user_id=1,
+                    storage_key=live_key,
+                    status=RUNNING,
+                    current_step=VECTOR_CLEANUP,
+                    attempt_count=1,
+                    lease_token=uuid4(),
+                    lease_expires_at=datetime.now(timezone.utc)
+                    + timedelta(minutes=5),
+                ),
+            )
+        )
+        session.commit()
+
+    result = recover_document_deletions(
+        factory,
+        vectors,
+        storage,  # type: ignore[arg-type]
+    )
+
+    assert (result.discovered, result.completed, result.failed) == (1, 1, 0)
+    with factory() as session:
+        assert session.get(Document, 1) is None
+        assert session.get(Document, 2) is not None
+        assert session.get(Document, 3) is not None
+        live_job = session.scalar(
+            select(DocumentDeletionJob).where(
+                DocumentDeletionJob.document_id == 2
+            )
+        )
+        assert live_job is not None and live_job.status == RUNNING
+    assert live_key in storage.files
+    assert unrelated_key in storage.files
+    assert vectors.vectors[(1, 2)]
+    assert vectors.vectors[(1, 3)]
+
+
+def test_vector_verification_failure_is_retryable(
+    deletion_environment: tuple[
+        TestClient, sessionmaker[Session], FakeVectorStore, FakeStorage
+    ],
+) -> None:
+    """Failure to verify Chroma cleanup remains at the idempotent vector step."""
+
+    _, factory, vectors, storage = deletion_environment
+    add_user(factory, 1)
+    storage_key = add_document(
+        factory, storage, vectors, document_id=1, user_id=1
+    )
+    vectors.fail_verify = True
+
+    with factory() as session, pytest.raises(DocumentDeletionExternalError):
+        delete_owned_document(
+            session,
+            vectors,
+            storage,  # type: ignore[arg-type]
+            document_id=1,
+            user_id=1,
+        )
+
+    with factory() as session:
+        job = session.scalar(select(DocumentDeletionJob))
+        assert job is not None
+        assert (job.status, job.current_step) == (FAILED, VECTOR_CLEANUP)
+        assert session.get(Document, 1) is not None
+    assert storage_key in storage.files
+
+    vectors.fail_verify = False
+    with factory() as session:
+        delete_owned_document(
+            session,
+            vectors,
+            storage,  # type: ignore[arg-type]
+            document_id=1,
+            user_id=1,
+        )
+
+    assert vectors.delete_calls == [(1, 1), (1, 1)]
+    with factory() as session:
+        assert session.get(Document, 1) is None
+        job = session.scalar(select(DocumentDeletionJob))
+        assert job is not None and job.status == COMPLETED
 
 
 def test_delete_api_statuses_and_idempotent_completed_request(

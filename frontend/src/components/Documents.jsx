@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -44,6 +43,10 @@ import {
   revokeDocumentObjectUrl,
   triggerDocumentDownload,
 } from './documentFileUi'
+import {
+  createDocumentAutoUploadController,
+  getSingleDocumentUploadFile,
+} from './documentUploadUi'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -56,12 +59,10 @@ import {
 } from './documentSearchUrl'
 import './Documents.css'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_TITLE_LENGTH = 255
 const DOCUMENT_PAGE_SIZE = 10
 const SEARCH_DEBOUNCE_MS = 350
 const MAX_CONCURRENT_STATUS_REQUESTS = 3
-const ALLOWED_EXTENSIONS = new Set(['pdf', 'docx'])
 
 const filters = ['Tất cả', 'PDF', 'DOCX']
 const documentStatuses = {
@@ -91,25 +92,6 @@ function formatCreatedAt(value) {
 function formatMetric(value, unit) {
   if (!Number.isInteger(value) || value < 0) return 'Chưa có'
   return `${new Intl.NumberFormat('vi-VN').format(value)} ${unit}`
-}
-
-function getFileValidationMessage(file) {
-  if (!file) return null
-
-  const extension = file.name.split('.').pop()?.toLocaleLowerCase('en')
-  if (!extension || !ALLOWED_EXTENSIONS.has(extension)) {
-    return 'Định dạng không được hỗ trợ. Vui lòng chọn file PDF hoặc DOCX.'
-  }
-
-  if (file.size === 0) {
-    return 'File đã chọn đang rỗng. Vui lòng chọn một file có nội dung.'
-  }
-
-  if (file.size > MAX_FILE_SIZE) {
-    return 'File vượt quá giới hạn 10 MiB của giao diện. Backend vẫn sẽ kiểm tra giới hạn cuối cùng.'
-  }
-
-  return null
 }
 
 function getUploadErrorMessage(error) {
@@ -480,7 +462,7 @@ function DocumentCard({
 }
 
 function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
-  const { accessToken, logout } = useAuth()
+  const { accessToken } = useAuth()
   const {
     currentHash,
     currentPath,
@@ -499,6 +481,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     total: 0,
     totalPages: 0,
   })
+  const [loadedListScope, setLoadedListScope] = useState(null)
   const [listStatus, setListStatus] = useState('loading')
   const [listError, setListError] = useState('')
   const [listRefreshVersion, setListRefreshVersion] = useState(0)
@@ -513,13 +496,11 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const deletionDocumentId = deletionState.document?.id ?? null
   const [deletionNotice, setDeletionNotice] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
-  const [title, setTitle] = useState('')
   const [uploadState, setUploadState] = useState('idle')
   const [uploadMessage, setUploadMessage] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const inputId = useId()
   const fileInputRef = useRef(null)
-  const uploadSectionRef = useRef(null)
   const uploadRequestRef = useRef({ id: 0, controller: null })
   const listRequestRef = useRef({ id: 0, controller: null })
   const processingRequestsRef = useRef(new Map())
@@ -530,22 +511,22 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const fileActionsInFlightRef = useRef(new Set())
   const deletionRequestRef = useRef({ id: 0, documentId: null, controller: null })
   const deletionGuardRef = useRef(createDocumentDeletionGuard())
+  const autoUploadControllerRef = useRef(createDocumentAutoUploadController())
   const deletionDialogRef = useRef(null)
   const deletionCancelRef = useRef(null)
-  const uploadInFlightRef = useRef(false)
   const isMountedRef = useRef(true)
   const currentLocationKey = `${currentPath}${currentSearch}${currentHash}`
   const currentLocationKeyRef = useRef(currentLocationKey)
 
-  const fileValidationMessage = useMemo(
-    () => getFileValidationMessage(selectedFile),
-    [selectedFile],
-  )
-  const titleValidationMessage = title.length > MAX_TITLE_LENGTH
-    ? `Tiêu đề không được vượt quá ${MAX_TITLE_LENGTH} ký tự.`
-    : null
-  const validationMessage = fileValidationMessage || titleValidationMessage
   const isUploading = uploadState === 'uploading'
+  const uploadPrimaryText = isUploading
+    ? 'Đang tải tài liệu lên...'
+    : uploadMessage || 'Chọn tài liệu hoặc kéo thả vào đây'
+  const uploadSecondaryText = selectedFile
+    ? `${selectedFile.name} · ${formatFileSize(selectedFile.size)}`
+    : uploadState === 'success'
+      ? 'Danh sách tài liệu đã được cập nhật. Bạn có thể tiếp tục tải file khác.'
+      : 'PDF hoặc DOCX · tối đa 10 MiB · mỗi lần một file · tự động tải lên'
 
   useEffect(() => {
     if (!isSidebarOpen) return undefined
@@ -567,10 +548,12 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     const fileActionsInFlight = fileActionsInFlightRef.current
     const deletionRequest = deletionRequestRef.current
     const deletionGuard = deletionGuardRef.current
+    const autoUploadController = autoUploadControllerRef.current
     isMountedRef.current = true
 
     return () => {
       isMountedRef.current = false
+      autoUploadController.invalidate()
       uploadRequestRef.current.id += 1
       uploadRequestRef.current.controller?.abort()
       listRequestRef.current.id += 1
@@ -594,7 +577,6 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       deletionRequest.controller?.abort()
       Object.assign(deletionRequest, { documentId: null, controller: null })
       deletionGuard.clear()
-      uploadInFlightRef.current = false
     }
   }, [])
 
@@ -742,6 +724,10 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         total: response.total,
         totalPages: response.total_pages,
       })
+      setLoadedListScope({
+        search: debouncedSearch,
+        fileType: activeFilter,
+      })
       setListStatus('success')
     } catch (error) {
       if (
@@ -794,107 +780,80 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
     setPage(1)
   }
 
-  const selectFile = (file) => {
-    if (isUploading) return
+  const startAutoUpload = async (files) => {
+    if (autoUploadControllerRef.current.isBusy()) return
 
-    uploadRequestRef.current.id += 1
-    uploadRequestRef.current.controller?.abort()
-    uploadRequestRef.current.controller = null
-    setSelectedFile(file ?? null)
-    setTitle('')
-    setUploadMessage('')
-    setUploadState(file ? 'selected' : 'idle')
+    const selection = getSingleDocumentUploadFile(files)
+    if (!selection.file && !selection.error) return
+    if (selection.error) {
+      setSelectedFile(selection.file)
+      setUploadState('error')
+      setUploadMessage(selection.error)
+      return
+    }
+
+    await autoUploadControllerRef.current.submit(selection.file, {
+      upload: async (file) => {
+        const requestId = uploadRequestRef.current.id + 1
+        const controller = new AbortController()
+        uploadRequestRef.current.controller?.abort()
+        uploadRequestRef.current = { id: requestId, controller }
+
+        try {
+          return await uploadDocument({
+            file,
+            accessToken,
+            signal: controller.signal,
+          })
+        } finally {
+          if (uploadRequestRef.current.id === requestId) {
+            uploadRequestRef.current.controller = null
+          }
+        }
+      },
+      onStart: (file) => {
+        setSelectedFile(file)
+        setUploadState('uploading')
+        setUploadMessage('Đang tải lên...')
+      },
+      onSuccess: (response, file) => {
+        if (!isMountedRef.current) return
+        const uploadedTitle = typeof response?.title === 'string' && response.title.trim()
+          ? response.title.trim()
+          : file.name
+        setSelectedFile(null)
+        setUploadState('success')
+        setUploadMessage(`Đã tải lên thành công “${uploadedTitle}”.`)
+        setQuery('')
+        setDebouncedSearch('')
+        setActiveFilter('Tất cả')
+        setPage(1)
+        setListRefreshVersion((version) => version + 1)
+      },
+      onError: (error) => {
+        if (error?.name === 'AbortError' || !isMountedRef.current) return
+        setUploadState('error')
+        setUploadMessage(getUploadErrorMessage(error))
+      },
+      onSettled: () => {
+        if (!isMountedRef.current) return
+        setIsDragging(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      },
+    })
   }
 
   const handleFileChange = (event) => {
-    selectFile(event.target.files?.[0])
+    const files = Array.from(event.target.files ?? [])
     event.target.value = ''
+    void startAutoUpload(files)
   }
 
   const handleDrop = (event) => {
     event.preventDefault()
     setIsDragging(false)
-    if (isUploading) return
-
-    const droppedFiles = Array.from(event.dataTransfer.files ?? [])
-    if (droppedFiles.length > 1) {
-      setSelectedFile(null)
-      setTitle('')
-      setUploadState('error')
-      setUploadMessage('Mỗi lần chỉ có thể tải lên một file.')
-      return
-    }
-
-    selectFile(droppedFiles[0])
-  }
-
-  const openFilePicker = () => {
-    uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    fileInputRef.current?.click()
-  }
-
-  const handleTitleChange = (event) => {
-    setTitle(event.target.value)
-    if (uploadState === 'success' || uploadState === 'error') {
-      setUploadState(selectedFile ? 'selected' : 'idle')
-      setUploadMessage('')
-    }
-  }
-
-  const handleUpload = async (event) => {
-    event.preventDefault()
-
-    if (uploadInFlightRef.current) return
-    if (!selectedFile) {
-      setUploadState('error')
-      setUploadMessage('Vui lòng chọn một file trước khi tải lên.')
-      return
-    }
-    if (validationMessage) return
-
-    const requestId = uploadRequestRef.current.id + 1
-    const controller = new AbortController()
-    uploadRequestRef.current = { id: requestId, controller }
-    uploadInFlightRef.current = true
-    setUploadState('uploading')
-    setUploadMessage('Đang tải tài liệu lên...')
-
-    try {
-      const response = await uploadDocument({
-        file: selectedFile,
-        title,
-        accessToken,
-        signal: controller.signal,
-      })
-
-      if (!isMountedRef.current || uploadRequestRef.current.id !== requestId) return
-
-      const uploadedTitle = typeof response?.title === 'string' && response.title.trim()
-        ? response.title.trim()
-        : title.trim() || selectedFile.name
-      setUploadState('success')
-      setUploadMessage(`Đã tải lên thành công “${uploadedTitle}”.`)
-      setQuery('')
-      setDebouncedSearch('')
-      setActiveFilter('Tất cả')
-      setPage(1)
-      setListRefreshVersion((version) => version + 1)
-    } catch (error) {
-      if (
-        error?.name === 'AbortError'
-        || !isMountedRef.current
-        || uploadRequestRef.current.id !== requestId
-      ) return
-
-      setUploadState('error')
-      setUploadMessage(getUploadErrorMessage(error))
-    } finally {
-      if (uploadRequestRef.current.id === requestId) {
-        uploadRequestRef.current.controller = null
-        uploadInFlightRef.current = false
-        if (isMountedRef.current) setIsDragging(false)
-      }
-    }
+    if (autoUploadControllerRef.current.isBusy()) return
+    void startAutoUpload(event.dataTransfer.files)
   }
 
   const handleProcessDocument = async (document) => {
@@ -1264,10 +1223,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
 
       const message = getDocumentDeletionErrorMessage(error)
       dispatchDeletion({ type: 'error', message })
-      if (error instanceof ApiHttpError && error.status === 401) {
-        logout()
-        return
-      }
+      if (error instanceof ApiHttpError && error.status === 401) return
       if (error instanceof ApiNetworkError || (error instanceof ApiHttpError && error.status >= 500)) {
         setListRefreshVersion((version) => version + 1)
       }
@@ -1285,6 +1241,14 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const hasActiveFilters = Boolean(
     query.trim() || activeFilter !== 'Tất cả',
   )
+  const isLibraryEmpty = Boolean(
+    listStatus === 'success'
+    && documents.length === 0
+    && pagination.total === 0
+    && !hasActiveFilters
+    && loadedListScope?.search === ''
+    && loadedListScope?.fileType === 'Tất cả',
+  )
 
   return (
     <div className="app-shell">
@@ -1300,10 +1264,9 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
               <h2 id="documents-title">Tài liệu của tôi</h2>
               <p>Quản lý, tìm kiếm và khai thác kiến thức từ tất cả tài liệu học tập của bạn.</p>
             </div>
-            <button className="documents-upload" type="button" onClick={openFilePicker} disabled={isUploading}><Icon name="upload" size={18} />Tải tài liệu lên</button>
           </section>
 
-          <section className="document-upload-panel" aria-labelledby="document-upload-title" ref={uploadSectionRef}>
+          <section className="document-upload-panel" aria-labelledby="document-upload-title">
             <div className="document-upload-panel__heading">
               <div>
                 <p>Tải lên Backend</p>
@@ -1312,7 +1275,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
               <span>PDF, DOCX · tối đa 10 MiB trên giao diện</span>
             </div>
 
-            <form className="document-upload-form" onSubmit={handleUpload} noValidate>
+            <div className="document-upload-form">
               <input
                 id={inputId}
                 className="document-file-input"
@@ -1323,9 +1286,11 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                 disabled={isUploading}
               />
               <label
-                className={`document-dropzone ${isDragging ? 'document-dropzone--dragging' : ''} ${isUploading ? 'document-dropzone--disabled' : ''}`}
+                className={`document-dropzone ${isDragging ? 'document-dropzone--dragging' : ''} ${isUploading ? 'document-dropzone--disabled document-dropzone--uploading' : ''} ${uploadState === 'success' ? 'document-dropzone--success' : ''} ${uploadState === 'error' ? 'document-dropzone--error' : ''}`}
                 htmlFor={inputId}
                 tabIndex={isUploading ? -1 : 0}
+                aria-disabled={isUploading}
+                aria-busy={isUploading}
                 onKeyDown={(event) => {
                   if ((event.key === 'Enter' || event.key === ' ') && !isUploading) {
                     event.preventDefault()
@@ -1342,56 +1307,21 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                 }}
                 onDrop={handleDrop}
               >
-                <span className="document-dropzone__icon"><Icon name="upload" size={23} /></span>
-                <span className="document-dropzone__copy">
-                  <strong>{selectedFile ? 'Chọn file khác' : 'Chọn một file hoặc kéo thả vào đây'}</strong>
-                  <small>Chỉ tải một file mỗi lần. Backend là nơi kiểm tra bảo mật và giới hạn cuối cùng.</small>
+                <span className="document-dropzone__icon">
+                  {isUploading
+                    ? <span className="document-upload-spinner document-upload-spinner--inline" aria-hidden="true" />
+                    : <Icon name={uploadState === 'success' ? 'check' : 'upload'} size={25} />}
+                </span>
+                <span
+                  className="document-dropzone__copy"
+                  role={uploadState === 'error' ? 'alert' : 'status'}
+                  aria-live="polite"
+                >
+                  <strong>{uploadPrimaryText}</strong>
+                  <small>{uploadSecondaryText}</small>
                 </span>
               </label>
-
-              <div className="document-upload-details">
-                <div className={`document-selected-file ${selectedFile ? 'document-selected-file--ready' : ''}`}>
-                  <span className="document-selected-file__icon"><Icon name="file" size={21} /></span>
-                  <span>
-                    <strong>{selectedFile?.name ?? 'Chưa chọn file'}</strong>
-                    <small>{selectedFile ? formatFileSize(selectedFile.size) : 'PDF hoặc DOCX'}</small>
-                  </span>
-                </div>
-
-                <label className="document-title-field" htmlFor={`${inputId}-title`}>
-                  <span>Tiêu đề <small>(không bắt buộc)</small></span>
-                  <input
-                    id={`${inputId}-title`}
-                    type="text"
-                    value={title}
-                    onChange={handleTitleChange}
-                    placeholder="Nếu để trống, Backend sẽ dùng tên file"
-                    disabled={isUploading}
-                    aria-invalid={Boolean(titleValidationMessage)}
-                  />
-                  <small className={titleValidationMessage ? 'document-title-field__count--error' : ''}>{title.length}/{MAX_TITLE_LENGTH} ký tự</small>
-                </label>
-
-                <button
-                  className="document-upload-submit"
-                  type="submit"
-                  disabled={!selectedFile || Boolean(validationMessage) || isUploading}
-                >
-                  {isUploading ? <span className="document-upload-spinner" aria-hidden="true" /> : <Icon name="upload" size={18} />}
-                  {isUploading ? 'Đang tải lên...' : 'Tải lên'}
-                </button>
-              </div>
-
-              <div
-                className={`document-upload-notice ${validationMessage || uploadState === 'error' ? 'document-upload-notice--error' : ''} ${uploadState === 'success' ? 'document-upload-notice--success' : ''}`}
-                role={validationMessage || uploadState === 'error' ? 'alert' : 'status'}
-                aria-live="polite"
-              >
-                {(validationMessage || uploadMessage) && (
-                  <><Icon name={uploadState === 'success' ? 'check' : 'file'} size={17} /><span>{validationMessage || uploadMessage}</span></>
-                )}
-              </div>
-            </form>
+            </div>
           </section>
 
           <section className="documents-toolbar" aria-label="Tìm kiếm và lọc tài liệu">
@@ -1470,15 +1400,41 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
             )}
 
             {listStatus === 'success' && documents.length === 0 && (
-              <div className="documents-empty">
-                <div className="documents-empty__icon"><Icon name="documents" size={28} /></div>
-                <h3>{hasActiveFilters ? 'Không tìm thấy tài liệu' : 'Chưa có tài liệu'}</h3>
-                <p>{hasActiveFilters ? 'Không có tài liệu phù hợp với từ khóa hoặc định dạng bạn đang chọn.' : 'Hãy tải tài liệu đầu tiên để bắt đầu xây dựng thư viện học tập.'}</p>
-                <div>
-                  {hasActiveFilters && <button className="documents-empty__reset" type="button" onClick={resetFilters}>Xóa bộ lọc</button>}
-                  {!hasActiveFilters && <button className="documents-upload" type="button" onClick={openFilePicker} disabled={isUploading}><Icon name="upload" size={17} />Tải tài liệu lên</button>}
+              <>
+                <div className="documents-empty">
+                  <div className="documents-empty__icon"><Icon name="library" size={28} /></div>
+                  <h3>{hasActiveFilters ? 'Không tìm thấy tài liệu' : 'Chưa có tài liệu'}</h3>
+                  <p>{hasActiveFilters ? 'Không có tài liệu phù hợp với từ khóa hoặc định dạng bạn đang chọn.' : 'Tài liệu bạn tải lên sẽ xuất hiện tại đây.'}</p>
+                  {hasActiveFilters && (
+                    <div className="documents-empty__actions">
+                      <button className="documents-empty__reset" type="button" onClick={resetFilters}>Xóa bộ lọc</button>
+                    </div>
+                  )}
                 </div>
-              </div>
+
+                {isLibraryEmpty && (
+                  <section className="documents-getting-started" aria-labelledby="documents-getting-started-title">
+                    <div className="documents-getting-started__heading">
+                      <p>Quy trình đơn giản</p>
+                      <h3 id="documents-getting-started-title">Bắt đầu học cùng StudyMate AI</h3>
+                    </div>
+                    <ol className="documents-getting-started__steps">
+                      <li>
+                        <span className="documents-getting-started__icon"><Icon name="upload" size={21} /></span>
+                        <div><span>Bước 1</span><h4>Tải tài liệu</h4><p>Chọn PDF hoặc DOCX để bắt đầu.</p></div>
+                      </li>
+                      <li>
+                        <span className="documents-getting-started__icon"><Icon name="summary" size={21} /></span>
+                        <div><span>Bước 2</span><h4>Tóm tắt AI</h4><p>Nắm nhanh nội dung quan trọng.</p></div>
+                      </li>
+                      <li>
+                        <span className="documents-getting-started__icon"><Icon name="chat" size={21} /></span>
+                        <div><span>Bước 3</span><h4>Hỏi đáp AI</h4><p>Đặt câu hỏi dựa trên tài liệu.</p></div>
+                      </li>
+                    </ol>
+                  </section>
+                )}
+              </>
             )}
           </section>
         </main>

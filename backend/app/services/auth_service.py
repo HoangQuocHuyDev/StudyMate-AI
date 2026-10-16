@@ -11,7 +11,12 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
-from app.schemas.user import UserLogin, UserRegister
+from app.schemas.user import (
+    UserLogin,
+    UserPasswordChange,
+    UserProfileUpdate,
+    UserRegister,
+)
 
 
 _DUMMY_PASSWORD_HASH = (
@@ -42,6 +47,22 @@ class StaleAccessTokenError(Exception):
 
 class TokenRevocationError(Exception):
     """Raised when token revocation cannot be persisted safely."""
+
+
+class UserProfileUpdateError(Exception):
+    """Raised when an authenticated profile update cannot be persisted."""
+
+
+class InvalidCurrentPasswordError(Exception):
+    """Raised when a password change does not prove the current password."""
+
+
+class StaleAccountUpdateError(Exception):
+    """Raised when the authenticated account changed during an update."""
+
+
+class PasswordChangeError(Exception):
+    """Raised when a password change cannot be persisted safely."""
 
 
 def _is_username_unique_violation(error: IntegrityError) -> bool:
@@ -153,3 +174,76 @@ def revoke_access_token(
     except SQLAlchemyError as error:
         db.rollback()
         raise TokenRevocationError from error
+
+
+def update_current_user_profile(
+    db: Session,
+    *,
+    user: User,
+    expected_token_version: int,
+    update_data: UserProfileUpdate,
+) -> User:
+    """Update only the authenticated account's display name."""
+
+    statement = (
+        update(User)
+        .where(
+            User.id == user.id,
+            User.is_active.is_(True),
+            User.token_version == expected_token_version,
+        )
+        .values(full_name=update_data.full_name)
+        .execution_options(synchronize_session=False)
+    )
+    try:
+        result = db.execute(statement)
+        if result.rowcount != 1:
+            db.rollback()
+            raise StaleAccountUpdateError
+        db.commit()
+        user.full_name = update_data.full_name
+        return user
+    except StaleAccountUpdateError:
+        raise
+    except SQLAlchemyError:
+        db.rollback()
+        raise UserProfileUpdateError from None
+
+
+def change_current_user_password(
+    db: Session,
+    *,
+    user: User,
+    expected_token_version: int,
+    password_change: UserPasswordChange,
+) -> None:
+    """Replace one password and revoke all previously issued access tokens."""
+
+    if not verify_password(password_change.current_password, user.password_hash):
+        raise InvalidCurrentPasswordError
+
+    new_password_hash = hash_password(password_change.new_password)
+    statement = (
+        update(User)
+        .where(
+            User.id == user.id,
+            User.is_active.is_(True),
+            User.token_version == expected_token_version,
+        )
+        .values(
+            password_hash=new_password_hash,
+            token_version=User.token_version + 1,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    try:
+        result = db.execute(statement)
+        if result.rowcount != 1:
+            db.rollback()
+            raise StaleAccountUpdateError
+        db.commit()
+    except StaleAccountUpdateError:
+        raise
+    except SQLAlchemyError:
+        db.rollback()
+        raise PasswordChangeError from None

@@ -173,7 +173,7 @@ function TypingIndicator() {
 }
 
 function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
-  const { accessToken, logout, user } = useAuth()
+  const { accessToken, user } = useAuth()
   const { currentSearch, navigate } = useNavigation()
   const deepLink = useMemo(() => parseChatDeepLink(currentSearch), [currentSearch])
   const userInitials = getUserInitials(user)
@@ -253,9 +253,8 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   }, [documents, documentsState.deletedCount])
 
   const handleRequestError = useCallback((error) => {
-    if (error instanceof ApiHttpError && error.status === 401) logout()
     return getChatErrorMessage(error)
-  }, [logout])
+  }, [])
 
   const navigateToChatSelection = useCallback((documentId, sessionId = null, options = {}) => {
     const destination = buildChatDeepLinkUrl(documentId, sessionId)

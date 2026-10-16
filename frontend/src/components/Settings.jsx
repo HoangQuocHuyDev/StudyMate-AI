@@ -1,5 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useNavigation } from '../navigation/NavigationContext'
+import {
+  ApiConfigurationError,
+  ApiHttpError,
+  ApiNetworkError,
+} from '../services/apiClient'
+import { changePassword, updateProfile } from '../services/authService'
+import { useTheme } from '../theme/ThemeContext.js'
 import {
   getDisplayName,
   getDisplayUsername,
@@ -7,6 +15,7 @@ import {
 } from '../utils/userDisplay'
 import Header from './Header'
 import Icon from './Icons'
+import { createPasswordChangeResponseGuard } from './settingsPasswordFlow.js'
 import Sidebar from './Sidebar'
 import './Settings.css'
 
@@ -19,8 +28,31 @@ function SectionHeading({ id, icon, title, description }) {
   )
 }
 
+function getRequestErrorMessage(error, fallback) {
+  if (error instanceof ApiNetworkError) {
+    return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.'
+  }
+  if (error instanceof ApiConfigurationError) {
+    return 'Frontend chưa được cấu hình địa chỉ API hợp lệ.'
+  }
+  if (error instanceof ApiHttpError && error.status === 400) return error.message
+  if (error instanceof ApiHttpError && error.status === 422) {
+    return 'Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại.'
+  }
+  if (error instanceof ApiHttpError && error.status >= 500) {
+    return 'Máy chủ chưa thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.'
+  }
+  if (error instanceof ApiHttpError && error.status !== 401) return fallback
+  return fallback
+}
+
 function ProfileSettings() {
-  const { user, isAuthenticated } = useAuth()
+  const {
+    accessToken,
+    user,
+    isAuthenticated,
+    updateCurrentUser,
+  } = useAuth()
   const currentUser = isAuthenticated ? user : null
   const displayName = getDisplayName(currentUser)
   const username = getDisplayUsername(currentUser)
@@ -29,17 +61,44 @@ function ProfileSettings() {
     typeof currentUser?.full_name === 'string' ? currentUser.full_name.trim() : ''
   ))
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submissionRef = useRef(false)
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    if (!fullName.trim()) {
-      setError('Vui lòng nhập họ và tên.')
-      setNotice('')
+    if (submissionRef.current) return
+    const normalizedName = fullName.trim()
+    if (normalizedName.length < 2 || normalizedName.length > 100) {
+      setError('Họ và tên phải có từ 2 đến 100 ký tự.')
+      setNotice(null)
       return
     }
     setError('')
-    setNotice('Chức năng cập nhật thông tin chưa kết nối máy chủ.')
+    setNotice(null)
+    setIsSubmitting(true)
+    submissionRef.current = true
+    const submittedToken = accessToken
+    try {
+      const updatedUser = await updateProfile(normalizedName, {
+        accessToken: submittedToken,
+      })
+      if (!updateCurrentUser(updatedUser, submittedToken)) return
+      setFullName(updatedUser.full_name)
+      setNotice({ type: 'success', message: 'Đã cập nhật thông tin tài khoản.' })
+    } catch (requestError) {
+      if (requestError instanceof ApiHttpError && requestError.status === 401) return
+      setNotice({
+        type: 'error',
+        message: getRequestErrorMessage(
+          requestError,
+          'Không thể cập nhật thông tin tài khoản lúc này.',
+        ),
+      })
+    } finally {
+      submissionRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -52,7 +111,7 @@ function ProfileSettings() {
       <form className="settings-form" onSubmit={handleSubmit} noValidate>
         <label className="settings-field">
           <span>Họ và tên</span>
-          <div className={error ? 'settings-control settings-control--error' : 'settings-control'}><Icon name="user" size={18} /><input type="text" value={fullName} onChange={(event) => { setFullName(event.target.value); setError(''); setNotice('') }} autoComplete="name" aria-invalid={Boolean(error)} aria-describedby={error ? 'settings-name-error' : undefined} /></div>
+          <div className={error ? 'settings-control settings-control--error' : 'settings-control'}><Icon name="user" size={18} /><input type="text" value={fullName} onChange={(event) => { setFullName(event.target.value); setError(''); setNotice(null) }} autoComplete="name" minLength={2} maxLength={100} disabled={isSubmitting} aria-invalid={Boolean(error)} aria-describedby={error ? 'settings-name-error' : undefined} /></div>
           {error && <small id="settings-name-error">{error}</small>}
         </label>
         <label className="settings-field">
@@ -60,21 +119,43 @@ function ProfileSettings() {
           <div className="settings-control settings-control--readonly"><span className="settings-at">@</span><input type="text" value={username} placeholder="Chưa có tên đăng nhập" readOnly aria-readonly="true" /></div>
           <small>Tên đăng nhập hiện chưa thể thay đổi.</small>
         </label>
-        <button className="settings-primary-button" type="submit"><Icon name="check" size={17} />Lưu thay đổi</button>
-        {notice && <p className="settings-notice" role="status">{notice}</p>}
+        <button className="settings-primary-button" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}><Icon name="check" size={17} />{isSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
+        {notice && <p className={`settings-notice settings-notice--${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'}>{notice.message}</p>}
       </form>
     </section>
   )
 }
 
 function PasswordSettings() {
+  const {
+    getSessionIdentity,
+    isCurrentSession,
+    logoutCurrentSession,
+  } = useAuth()
+  const { navigate } = useNavigation()
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
   const [errors, setErrors] = useState({})
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submissionRef = useRef(false)
+  const requestControllerRef = useRef(null)
+  const [responseGuard] = useState(() => createPasswordChangeResponseGuard({
+    getSessionIdentity,
+    isCurrentSession,
+    logoutCurrentSession,
+  }))
+
+  useEffect(() => () => {
+    requestControllerRef.current?.abort()
+    requestControllerRef.current = null
+    responseGuard.unmount()
+  }, [responseGuard])
 
   const validate = (name, value, form = passwords) => {
     if (!value) return name === 'current' ? 'Vui lòng nhập mật khẩu hiện tại.' : name === 'next' ? 'Vui lòng nhập mật khẩu mới.' : 'Vui lòng xác nhận mật khẩu mới.'
-    if (name === 'next' && value.length < 8) return 'Mật khẩu mới phải có ít nhất 8 ký tự.'
+    if (name === 'next' && (value.length < 8 || value.length > 128)) return 'Mật khẩu mới phải có từ 8 đến 128 ký tự.'
+    if (name === 'next' && (!Array.from(value).some((character) => /\p{L}/u.test(character)) || !/[0-9]/.test(value))) return 'Mật khẩu mới phải chứa ít nhất một chữ cái và một chữ số.'
+    if (name === 'next' && value === form.current) return 'Mật khẩu mới phải khác mật khẩu hiện tại.'
     if (name === 'confirm' && value !== form.next) return 'Mật khẩu xác nhận không trùng khớp.'
     return ''
   }
@@ -84,11 +165,12 @@ function PasswordSettings() {
     const nextPasswords = { ...passwords, [name]: value }
     setPasswords(nextPasswords)
     setErrors((current) => ({ ...current, [name]: '', ...(name === 'next' && current.confirm ? { confirm: validate('confirm', nextPasswords.confirm, nextPasswords) } : {}) }))
-    setNotice('')
+    setNotice(null)
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
+    if (submissionRef.current) return
     const nextErrors = {
       current: validate('current', passwords.current),
       next: validate('next', passwords.next),
@@ -96,11 +178,46 @@ function PasswordSettings() {
     }
     setErrors(nextErrors)
     if (Object.values(nextErrors).some(Boolean)) {
-      setNotice('')
+      setNotice(null)
       return
     }
-    setPasswords({ current: '', next: '', confirm: '' })
-    setNotice('Chức năng đổi mật khẩu chưa kết nối máy chủ.')
+    submissionRef.current = true
+    setIsSubmitting(true)
+    setNotice(null)
+    const request = responseGuard.begin()
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    try {
+      await changePassword({
+        currentPassword: passwords.current,
+        newPassword: passwords.next,
+        confirmNewPassword: passwords.confirm,
+      }, {
+        accessToken: request.sessionIdentity.accessToken,
+        signal: controller.signal,
+      })
+      if (!responseGuard.complete(request)) return
+      navigate('/login?password_changed=1', { replace: true })
+    } catch (requestError) {
+      if (
+        requestError?.name === 'AbortError'
+        || !responseGuard.canHandleResponse(request)
+        || (requestError instanceof ApiHttpError && requestError.status === 401)
+      ) return
+      setNotice({
+        type: 'error',
+        message: getRequestErrorMessage(
+          requestError,
+          'Không thể đổi mật khẩu lúc này.',
+        ),
+      })
+    } finally {
+      if (responseGuard.canHandleResponse(request)) {
+        requestControllerRef.current = null
+        submissionRef.current = false
+        setIsSubmitting(false)
+      }
+    }
   }
 
   const fields = [
@@ -116,12 +233,12 @@ function PasswordSettings() {
         {fields.map((field) => (
           <label className="settings-field" key={field.name}>
             <span>{field.label}</span>
-            <div className={errors[field.name] ? 'settings-control settings-control--error' : 'settings-control'}><Icon name="lock" size={18} /><input name={field.name} type="password" value={passwords[field.name]} onChange={handleChange} placeholder={field.placeholder} autoComplete={field.autoComplete} minLength={field.name === 'current' ? undefined : 8} aria-invalid={Boolean(errors[field.name])} aria-describedby={errors[field.name] ? `${field.name}-password-error` : undefined} /></div>
+            <div className={errors[field.name] ? 'settings-control settings-control--error' : 'settings-control'}><Icon name="lock" size={18} /><input name={field.name} type="password" value={passwords[field.name]} onChange={handleChange} placeholder={field.placeholder} autoComplete={field.autoComplete} minLength={field.name === 'current' ? undefined : 8} maxLength={128} disabled={isSubmitting} aria-invalid={Boolean(errors[field.name])} aria-describedby={errors[field.name] ? `${field.name}-password-error` : undefined} /></div>
             {errors[field.name] && <small id={`${field.name}-password-error`}>{errors[field.name]}</small>}
           </label>
         ))}
-        <button className="settings-primary-button" type="submit"><Icon name="lock" size={17} />Đổi mật khẩu</button>
-        {notice && <p className="settings-notice" role="status">{notice}</p>}
+        <button className="settings-primary-button" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}><Icon name="lock" size={17} />{isSubmitting ? 'Đang đổi mật khẩu...' : 'Đổi mật khẩu'}</button>
+        {notice && <p className={`settings-notice settings-notice--${notice.type}`} role="alert">{notice.message}</p>}
       </form>
     </section>
   )
@@ -143,13 +260,14 @@ function AppearanceSettings({ theme, onChange }) {
           <i className="settings-theme-radio" aria-hidden="true" />
         </button>
       </div>
-      <p className="settings-theme-note">Lựa chọn chỉ được xem trước trên trang này và chưa được lưu vào tài khoản.</p>
+      <p className="settings-theme-note">Lựa chọn được áp dụng trên toàn bộ website và lưu trên trình duyệt này.</p>
     </section>
   )
 }
 
 function Settings({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
-  const [theme, setTheme] = useState('light')
+  const { theme, setTheme } = useTheme()
+  const { sessionGeneration } = useAuth()
 
   useEffect(() => {
     if (!isSidebarOpen) return undefined
@@ -163,7 +281,7 @@ function Settings({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   }, [isSidebarOpen, onCloseSidebar])
 
   return (
-    <div className={`app-shell settings-shell settings-theme--${theme}`}>
+    <div className="app-shell settings-shell">
       <Sidebar isOpen={isSidebarOpen} onClose={onCloseSidebar} />
       <button className={`sidebar-overlay ${isSidebarOpen ? 'sidebar-overlay--visible' : ''}`} type="button" onClick={onCloseSidebar} aria-label="Đóng thanh điều hướng" tabIndex={isSidebarOpen ? 0 : -1} />
 
@@ -177,7 +295,7 @@ function Settings({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           </section>
           <div className="settings-grid">
             <ProfileSettings />
-            <PasswordSettings />
+            <PasswordSettings key={sessionGeneration} />
             <AppearanceSettings theme={theme} onChange={setTheme} />
           </div>
         </main>

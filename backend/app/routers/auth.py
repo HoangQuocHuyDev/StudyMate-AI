@@ -12,17 +12,30 @@ from app.dependencies.auth import (
     get_current_user,
 )
 from app.models.user import User
-from app.schemas.user import TokenResponse, UserLogin, UserRegister, UserResponse
+from app.schemas.user import (
+    TokenResponse,
+    UserLogin,
+    UserPasswordChange,
+    UserProfileUpdate,
+    UserRegister,
+    UserResponse,
+)
 from app.services.auth_service import (
+    InvalidCurrentPasswordError,
     InvalidCredentialsError,
+    PasswordChangeError,
+    StaleAccountUpdateError,
     StaleAccessTokenError,
     TokenRevocationError,
     UsernameAlreadyExistsError,
     UserAuthenticationError,
+    UserProfileUpdateError,
     UserRegistrationError,
     authenticate_user,
+    change_current_user_password,
     register_user,
     revoke_access_token,
+    update_current_user_profile,
 )
 from app.services.auth_rate_limiter import (
     AuthenticationRateLimiter,
@@ -59,6 +72,84 @@ def read_current_user(
     """Return the authenticated user's current database profile."""
 
     return UserResponse.model_validate(current_user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+)
+def update_current_user(
+    profile: UserProfileUpdate,
+    authenticated: Annotated[
+        AuthenticatedUser,
+        Depends(get_authenticated_user),
+    ],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserResponse:
+    """Update the current account's safe, user-editable profile fields."""
+
+    try:
+        user = update_current_user_profile(
+            db,
+            user=authenticated.user,
+            expected_token_version=authenticated.token_version,
+            update_data=profile,
+        )
+    except StaleAccountUpdateError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except UserProfileUpdateError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể cập nhật thông tin tài khoản lúc này.",
+        ) from None
+
+    return UserResponse.model_validate(user)
+
+
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def change_password(
+    password_change: UserPasswordChange,
+    authenticated: Annotated[
+        AuthenticatedUser,
+        Depends(get_authenticated_user),
+    ],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Change the current password and revoke every existing access token."""
+
+    try:
+        change_current_user_password(
+            db,
+            user=authenticated.user,
+            expected_token_version=authenticated.token_version,
+            password_change=password_change,
+        )
+    except InvalidCurrentPasswordError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mật khẩu hiện tại không chính xác.",
+        ) from None
+    except StaleAccountUpdateError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except PasswordChangeError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể đổi mật khẩu lúc này.",
+        ) from None
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

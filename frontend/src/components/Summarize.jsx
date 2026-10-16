@@ -227,7 +227,7 @@ function SummaryResult({ copied, documentName, error, isGenerating, isLoading, o
 }
 
 function Summarize({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
-  const { accessToken, logout } = useAuth()
+  const { accessToken } = useAuth()
   const [documents, setDocuments] = useState([])
   const [documentsState, setDocumentsState] = useState({
     loading: true,
@@ -257,9 +257,8 @@ function Summarize({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const currentSummary = summaries[summaryType] ?? null
 
   const handleRequestError = useCallback((error) => {
-    if (error instanceof ApiHttpError && error.status === 401) logout()
     return getSummaryErrorMessage(error)
-  }, [logout])
+  }, [])
 
   const removeUnavailableDocument = useCallback((documentId) => {
     const currentId = selectedDocumentIdRef.current

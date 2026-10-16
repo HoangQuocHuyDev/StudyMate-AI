@@ -1,6 +1,14 @@
+import { createUnauthorizedResponseController } from './unauthorizedResponse.js'
+
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? '')
   .trim()
   .replace(/\/+$/, '')
+
+const unauthorizedResponses = createUnauthorizedResponseController()
+
+export function registerUnauthorizedHandler(handler) {
+  return unauthorizedResponses.register(handler)
+}
 
 export class ApiConfigurationError extends Error {
   constructor(message) {
@@ -106,6 +114,7 @@ export async function request(path, options = {}) {
     throw new TypeError('Kiểu dữ liệu phản hồi không được hỗ trợ.')
   }
   const headers = new Headers(customHeaders)
+  const unauthorizedSnapshot = unauthorizedResponses.capture(headers)
 
   if (json !== undefined) {
     if (fetchOptions.body !== undefined) {
@@ -132,6 +141,7 @@ export async function request(path, options = {}) {
 
   const data = await parseResponse(response, response.ok ? responseType : 'auto')
   if (!response.ok) {
+    unauthorizedResponses.handle(unauthorizedSnapshot, response.status)
     throw new ApiHttpError(getErrorMessage(data, response), {
       status: response.status,
       statusText: response.statusText,

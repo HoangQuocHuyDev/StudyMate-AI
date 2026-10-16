@@ -100,3 +100,45 @@ export async function logout(accessToken, { signal } = {}) {
     signal,
   })
 }
+
+function requireAccessToken(accessToken) {
+  if (
+    typeof accessToken !== 'string'
+    || !accessToken
+    || accessToken !== accessToken.trim()
+  ) {
+    throw new TypeError('Access token không hợp lệ.')
+  }
+}
+
+export async function updateProfile(fullName, { accessToken, signal } = {}) {
+  requireAccessToken(accessToken)
+  if (typeof fullName !== 'string') throw new TypeError('Họ và tên không hợp lệ.')
+
+  const user = await apiClient.patch('/auth/me', { full_name: fullName }, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  })
+  if (!isValidCurrentUser(user)) throw new InvalidCurrentUserResponseError()
+  return user
+}
+
+export async function changePassword({
+  currentPassword,
+  newPassword,
+  confirmNewPassword,
+}, { accessToken, signal } = {}) {
+  requireAccessToken(accessToken)
+  for (const value of [currentPassword, newPassword, confirmNewPassword]) {
+    if (typeof value !== 'string') throw new TypeError('Mật khẩu không hợp lệ.')
+  }
+
+  await apiClient.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+    confirm_new_password: confirmNewPassword,
+  }, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  })
+}

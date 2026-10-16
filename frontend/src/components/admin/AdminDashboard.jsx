@@ -8,23 +8,6 @@ import AdminSidebar from './AdminSidebar'
 import AdminUsers from './AdminUsers'
 import './Admin.css'
 
-const initialUsers = [
-  { id: 1, name: 'Minh Nguyễn', username: 'minhnguyen', initials: 'MN', role: 'student', status: 'active', createdAt: '12/09/2026', documents: 14, sessions: 38 },
-  { id: 2, name: 'Nguyễn Hoàng Anh', username: 'hoanganh_02', initials: 'HA', role: 'student', status: 'active', createdAt: '28/09/2026', documents: 8, sessions: 21 },
-  { id: 3, name: 'Trần Thu Hà', username: 'thuhatran', initials: 'TH', role: 'student', status: 'locked', createdAt: '16/08/2026', documents: 6, sessions: 17 },
-  { id: 4, name: 'Lê Quốc Bảo', username: 'bao_le', initials: 'QB', role: 'student', status: 'active', createdAt: '03/10/2026', documents: 3, sessions: 9 },
-  { id: 5, name: 'Phạm Mai Linh', username: 'admin_linh', initials: 'ML', role: 'admin', status: 'active', createdAt: '01/07/2026', documents: 0, sessions: 2 },
-  { id: 6, name: 'Võ Đức Thành', username: 'ducthanh99', initials: 'ĐT', role: 'student', status: 'active', createdAt: '21/09/2026', documents: 11, sessions: 30 },
-]
-
-const initialDocuments = [
-  { id: 1, name: 'Giáo trình Trí tuệ nhân tạo', owner: 'Minh Nguyễn', type: 'PDF', size: '4,8 MB', uploadedAt: '08/10/2026', status: 'complete' },
-  { id: 2, name: 'Bài giảng Kinh tế vi mô', owner: 'Nguyễn Hoàng Anh', type: 'DOCX', size: '1,2 MB', uploadedAt: '07/10/2026', status: 'complete' },
-  { id: 3, name: 'Ghi chú Cấu trúc dữ liệu', owner: 'Võ Đức Thành', type: 'DOCX', size: '18 KB', uploadedAt: '06/10/2026', status: 'processing' },
-  { id: 4, name: 'Nhập môn Machine Learning', owner: 'Minh Nguyễn', type: 'PDF', size: '3,1 MB', uploadedAt: '05/10/2026', status: 'complete' },
-  { id: 5, name: 'Tổng hợp câu hỏi Pháp luật', owner: 'Lê Quốc Bảo', type: 'DOCX', size: '840 KB', uploadedAt: '03/10/2026', status: 'error' },
-  { id: 6, name: 'Từ vựng tiếng Anh chuyên ngành', owner: 'Trần Thu Hà', type: 'PDF', size: '26 KB', uploadedAt: '30/09/2026', status: 'complete' },
-]
 
 const viewTitles = {
   overview: { eyebrow: 'Trung tâm điều hành', title: 'Tổng quan quản trị' },
@@ -36,8 +19,6 @@ function AdminDashboard() {
   const { user, isAuthenticated } = useAuth()
   const [activeView, setActiveView] = useState('overview')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [users, setUsers] = useState(initialUsers)
-  const [documents, setDocuments] = useState(initialDocuments)
   const title = viewTitles[activeView]
   const currentUser = isAuthenticated ? user : null
   const displayName = getDisplayName(currentUser)
@@ -54,14 +35,6 @@ function AdminDashboard() {
       document.body.classList.remove('admin-sidebar-visible')
     }
   }, [isSidebarOpen])
-
-  const toggleUserStatus = (id) => {
-    setUsers((current) => current.map((user) => user.id === id ? { ...user, status: user.status === 'active' ? 'locked' : 'active' } : user))
-  }
-
-  const deleteDocument = (id) => {
-    setDocuments((current) => current.filter((document) => document.id !== id))
-  }
 
   return (
     <div className="admin-shell">
@@ -81,10 +54,9 @@ function AdminDashboard() {
         </header>
 
         <main className="admin-content">
-          <div className="admin-warning"><Icon name="shield" size={18} /><p><strong>Chưa có API thống kê và quản trị hệ thống.</strong> Các danh sách quản lý bên dưới là bản minh họa có nhãn; trang tổng quan không hiển thị số liệu giả như dữ liệu thật.</p></div>
           {activeView === 'overview' && <AdminOverview displayName={displayName} onNavigate={setActiveView} />}
-          {activeView === 'users' && <AdminUsers users={users} onToggleStatus={toggleUserStatus} />}
-          {activeView === 'documents' && <AdminDocuments documents={documents} onDelete={deleteDocument} />}
+          {activeView === 'users' && <AdminUsers />}
+          {activeView === 'documents' && <AdminDocuments />}
         </main>
       </div>
     </div>

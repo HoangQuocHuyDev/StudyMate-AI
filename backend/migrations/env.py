@@ -36,6 +36,19 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations with a short-lived connection from application settings."""
 
+    validated_integration_connection = config.attributes.get(
+        "validated_integration_connection"
+    )
+    if validated_integration_connection is not None:
+        context.configure(
+            connection=validated_integration_connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = create_engine(
         get_settings().database_url,
         poolclass=pool.NullPool,

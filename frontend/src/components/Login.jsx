@@ -39,10 +39,16 @@ function EyeIcon({ hidden }) {
 function Login() {
   const { loginSession } = useAuth()
   const { currentSearch, navigate } = useNavigation()
+  const passwordWasChanged = new URLSearchParams(currentSearch).get('password_changed') === '1'
   const [form, setForm] = useState({ username: '', password: '', remember: false })
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(() => (
+    passwordWasChanged
+      ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.'
+      : ''
+  ))
+  const [isPasswordChangedNotice, setIsPasswordChangedNotice] = useState(passwordWasChanged)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const requestVersion = useRef(0)
   const submissionInProgress = useRef(false)
@@ -64,6 +70,7 @@ function Login() {
     setForm((current) => ({ ...current, [name]: type === 'checkbox' ? checked : value }))
     if (errors[name]) setErrors((current) => ({ ...current, [name]: '' }))
     if (notice) setNotice('')
+    setIsPasswordChangedNotice(false)
   }
 
   const handleBlur = (event) => {
@@ -91,6 +98,7 @@ function Login() {
     submissionInProgress.current = true
     setIsSubmitting(true)
     setNotice('')
+    setIsPasswordChangedNotice(false)
 
     try {
       const response = await login({
@@ -217,8 +225,8 @@ function Login() {
 
               {notice && (
                 <p
-                  className="login-notice login-notice--login-error"
-                  role="alert"
+                  className={`login-notice ${isPasswordChangedNotice ? 'login-notice--success' : 'login-notice--login-error'}`}
+                  role={isPasswordChangedNotice ? 'status' : 'alert'}
                 >
                   {notice}
                 </p>
