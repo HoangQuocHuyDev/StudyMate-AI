@@ -45,6 +45,8 @@ DEFAULT_SUMMARY_GLOBAL_CONCURRENCY = 4
 DEFAULT_SUMMARY_USER_CONCURRENCY = 1
 DEFAULT_CHAT_GLOBAL_CONCURRENCY = 4
 DEFAULT_CHAT_USER_CONCURRENCY = 1
+DEFAULT_INDEXING_GLOBAL_CONCURRENCY = 2
+DEFAULT_INDEXING_USER_CONCURRENCY = 1
 DEFAULT_CHAT_DEADLINE_SECONDS = 60
 DEFAULT_SUMMARY_DEADLINE_SECONDS = 120
 MAX_GEMINI_CHAT_TIMEOUT_SECONDS = 300
@@ -78,6 +80,8 @@ class Settings:
     summary_user_concurrency: int = DEFAULT_SUMMARY_USER_CONCURRENCY
     chat_global_concurrency: int = DEFAULT_CHAT_GLOBAL_CONCURRENCY
     chat_user_concurrency: int = DEFAULT_CHAT_USER_CONCURRENCY
+    indexing_global_concurrency: int = DEFAULT_INDEXING_GLOBAL_CONCURRENCY
+    indexing_user_concurrency: int = DEFAULT_INDEXING_USER_CONCURRENCY
     chat_deadline_seconds: int = DEFAULT_CHAT_DEADLINE_SECONDS
     summary_deadline_seconds: int = DEFAULT_SUMMARY_DEADLINE_SECONDS
     document_deletion_lease_seconds: int = (
@@ -448,6 +452,19 @@ def get_settings() -> Settings:
         raise RuntimeError(
             "CHAT_USER_CONCURRENCY must not exceed CHAT_GLOBAL_CONCURRENCY."
         )
+    indexing_global_concurrency = _load_concurrency_limit(
+        "INDEXING_GLOBAL_CONCURRENCY",
+        DEFAULT_INDEXING_GLOBAL_CONCURRENCY,
+    )
+    indexing_user_concurrency = _load_concurrency_limit(
+        "INDEXING_USER_CONCURRENCY",
+        DEFAULT_INDEXING_USER_CONCURRENCY,
+    )
+    if indexing_user_concurrency > indexing_global_concurrency:
+        raise RuntimeError(
+            "INDEXING_USER_CONCURRENCY must not exceed "
+            "INDEXING_GLOBAL_CONCURRENCY."
+        )
 
     return Settings(
         database_url=_load_database_url(),
@@ -475,6 +492,8 @@ def get_settings() -> Settings:
         summary_user_concurrency=summary_user_concurrency,
         chat_global_concurrency=chat_global_concurrency,
         chat_user_concurrency=chat_user_concurrency,
+        indexing_global_concurrency=indexing_global_concurrency,
+        indexing_user_concurrency=indexing_user_concurrency,
         chat_deadline_seconds=_load_chat_deadline_seconds(),
         summary_deadline_seconds=_load_summary_deadline_seconds(),
         document_deletion_lease_seconds=(

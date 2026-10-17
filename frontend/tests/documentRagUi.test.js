@@ -66,6 +66,7 @@ for (const [status, expectedMessage] of [
   [401, 'Phiên đăng nhập'],
   [404, 'không có quyền'],
   [409, 'không cho phép'],
+  [429, 'đang chuẩn bị nhiều tài liệu'],
   [500, 'Hệ thống'],
   [503, 'tạm thời không khả dụng'],
 ]) {

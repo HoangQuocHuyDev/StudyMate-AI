@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,10 @@ from app.models.document_deletion_job import DocumentDeletionJob
 from app.models.document_chunk import DocumentChunk
 from app.models.user import User
 from app.services.rag.chroma_vector_store import ChunkVectorRecord
+from app.services.summary.concurrency import (
+    SummaryConcurrencyError,
+    SummaryConcurrencyLimitError,
+)
 
 
 DIMENSIONS = 768
@@ -96,6 +101,27 @@ class FakeVectorStore:
             if record.metadata["user_id"] == user_id
             and record.metadata["document_id"] == document_id
         }
+
+
+class FakeCapacityCoordinator:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.active = 0
+        self.entries = 0
+        self.exits = 0
+
+    @contextmanager
+    def capacity(self, user_id: int) -> Iterator[None]:
+        assert user_id > 0
+        self.entries += 1
+        if self.error is not None:
+            raise self.error
+        self.active += 1
+        try:
+            yield
+        finally:
+            self.active -= 1
+            self.exits += 1
 
 
 @pytest.fixture
@@ -372,7 +398,7 @@ def test_overlapping_api_request_cannot_claim_same_document(
     )
 
     assert response.status_code == 200
-    assert competing_statuses == [409]
+    assert competing_statuses == [429]
 
 
 @pytest.mark.parametrize(
@@ -530,3 +556,88 @@ def test_success_response_does_not_expose_document_content_or_storage_key(
     assert "Nội dung học tập" not in response.text
     assert "private-secret-key" not in response.text
     assert "api_key" not in response.text.lower()
+
+
+def test_indexing_capacity_limit_returns_429_without_claim_or_embedding(
+    indexing_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeEmbedder, FakeVectorStore
+    ],
+) -> None:
+    client, factory, embedder, vector_store = indexing_api_environment
+    add_document(factory)
+    coordinator = FakeCapacityCoordinator(
+        SummaryConcurrencyLimitError("test capacity exhausted")
+    )
+    app.dependency_overrides[get_rag_indexing_resources] = lambda: (
+        RagIndexingResources(
+            embedder,
+            vector_store,
+            concurrency_coordinator=coordinator,
+        )
+    )
+
+    response = client.post(
+        "/documents/1/index",
+        headers=authorization_header(42),
+    )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "3"
+    assert stored_document(factory).rag_status == "PENDING"
+    assert embedder.calls == []
+
+
+def test_indexing_coordination_failure_returns_503_without_claim(
+    indexing_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeEmbedder, FakeVectorStore
+    ],
+) -> None:
+    client, factory, embedder, vector_store = indexing_api_environment
+    add_document(factory)
+    coordinator = FakeCapacityCoordinator(
+        SummaryConcurrencyError("test coordinator unavailable")
+    )
+    app.dependency_overrides[get_rag_indexing_resources] = lambda: (
+        RagIndexingResources(
+            embedder,
+            vector_store,
+            concurrency_coordinator=coordinator,
+        )
+    )
+
+    response = client.post(
+        "/documents/1/index",
+        headers=authorization_header(42),
+    )
+
+    assert response.status_code == 503
+    assert stored_document(factory).rag_status == "PENDING"
+    assert embedder.calls == []
+
+
+def test_indexing_releases_capacity_after_provider_failure(
+    indexing_api_environment: tuple[
+        TestClient, sessionmaker[Session], FakeEmbedder, FakeVectorStore
+    ],
+) -> None:
+    client, factory, _, vector_store = indexing_api_environment
+    add_document(factory)
+    embedder = FakeEmbedder(error=RuntimeError("test-only failure"))
+    coordinator = FakeCapacityCoordinator()
+    app.dependency_overrides[get_rag_indexing_resources] = lambda: (
+        RagIndexingResources(
+            embedder,
+            vector_store,
+            concurrency_coordinator=coordinator,
+        )
+    )
+
+    response = client.post(
+        "/documents/1/index",
+        headers=authorization_header(42),
+    )
+
+    assert response.status_code == 503
+    assert coordinator.entries == 1
+    assert coordinator.exits == 1
+    assert coordinator.active == 0

@@ -83,6 +83,11 @@ from app.services.rag.document_indexing import (
     get_document_rag_status,
     index_document,
 )
+from app.services.summary.concurrency import (
+    SummaryConcurrencyError,
+    SummaryConcurrencyLimitError,
+    get_capacity_concurrency_coordinator,
+)
 
 
 router = APIRouter(prefix="/documents", tags=["Tài liệu"])
@@ -532,13 +537,33 @@ def index_owned_document(
     """Synchronously index an owned, processed document."""
 
     try:
-        result = index_document(
-            db,
-            resources.embedder,
-            resources.vector_store,
-            document_id=document_id,
-            user_id=current_user.id,
+        coordinator = (
+            resources.concurrency_coordinator
+            or get_capacity_concurrency_coordinator(
+                db,
+                namespace="document_indexing",
+                limits=resources.concurrency_limits,
+            )
         )
+        with coordinator.capacity(current_user.id):
+            result = index_document(
+                db,
+                resources.embedder,
+                resources.vector_store,
+                document_id=document_id,
+                user_id=current_user.id,
+            )
+    except SummaryConcurrencyLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Hệ thống đang xử lý nhiều tài liệu. Vui lòng thử lại sau.",
+            headers={"Retry-After": "3"},
+        ) from None
+    except SummaryConcurrencyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tạm thời không thể điều phối việc chuẩn bị tài liệu.",
+        ) from None
     except DocumentIndexingNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

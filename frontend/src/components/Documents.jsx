@@ -58,6 +58,11 @@ import {
   createDocumentAutoUploadController,
   getSingleDocumentUploadFile,
 } from './documentUploadUi'
+import {
+  DocumentPreparationStageError,
+  documentPreparationStages,
+  uploadAndPrepareDocument,
+} from './documentPreparationUi'
 import Header from './Header'
 import Icon from './Icons'
 import Sidebar from './Sidebar'
@@ -584,10 +589,15 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const currentLocationKey = `${currentPath}${currentSearch}${currentHash}`
   const currentLocationKeyRef = useRef(currentLocationKey)
 
-  const isUploading = uploadState === 'uploading'
+  const isUploading = ['uploading', 'processing', 'indexing'].includes(uploadState)
   const isViewerOpen = documentViewer !== null
+  const uploadProgressText = {
+    uploading: 'Đang tải tài liệu lên...',
+    processing: 'Đang xử lý nội dung tài liệu...',
+    indexing: 'Đang chuẩn bị tài liệu cho AI...',
+  }
   const uploadPrimaryText = isUploading
-    ? 'Đang tải tài liệu lên...'
+    ? uploadProgressText[uploadState]
     : uploadMessage || 'Chọn tài liệu hoặc kéo thả vào đây'
   const uploadSecondaryText = selectedFile
     ? `${selectedFile.name} · ${formatFileSize(selectedFile.size)}`
@@ -922,11 +932,37 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
         uploadRequestRef.current.controller?.abort()
         uploadRequestRef.current = { id: requestId, controller }
 
+        const isCurrentRequest = () => (
+          isMountedRef.current
+          && uploadRequestRef.current.id === requestId
+        )
+
         try {
-          return await uploadDocument({
-            file,
-            accessToken,
-            signal: controller.signal,
+          return await uploadAndPrepareDocument(file, {
+            upload: (candidate) => uploadDocument({
+              file: candidate,
+              accessToken,
+              signal: controller.signal,
+            }),
+            process: async (documentId) => validateDocumentStatusResponse(
+              await processDocument(documentId, {
+                accessToken,
+                signal: controller.signal,
+              }),
+              documentId,
+            ),
+            index: async (documentId) => validateDocumentIndexingResponse(
+              await indexDocument(documentId, {
+                accessToken,
+                signal: controller.signal,
+              }),
+              documentId,
+            ),
+            onStage: (stage) => {
+              if (!isCurrentRequest()) return
+              setUploadState(stage)
+              setUploadMessage('')
+            },
           })
         } finally {
           if (uploadRequestRef.current.id === requestId) {
@@ -941,12 +977,12 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       },
       onSuccess: (response, file) => {
         if (!isMountedRef.current) return
-        const uploadedTitle = typeof response?.title === 'string' && response.title.trim()
-          ? response.title.trim()
+        const uploadedTitle = typeof response?.uploaded?.title === 'string' && response.uploaded.title.trim()
+          ? response.uploaded.title.trim()
           : file.name
         setSelectedFile(null)
         setUploadState('success')
-        setUploadMessage(`Đã tải lên thành công “${uploadedTitle}”.`)
+        setUploadMessage(`“${uploadedTitle}” đã sẵn sàng cho AI.`)
         setQuery('')
         setDebouncedSearch('')
         setActiveFilter('Tất cả')
@@ -955,8 +991,21 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
       },
       onError: (error) => {
         if (error?.name === 'AbortError' || !isMountedRef.current) return
+        const stage = error instanceof DocumentPreparationStageError
+          ? error.stage
+          : documentPreparationStages.UPLOADING
+        const originalError = error instanceof DocumentPreparationStageError
+          ? error.originalError
+          : error
         setUploadState('error')
-        setUploadMessage(getUploadErrorMessage(error))
+        setUploadMessage(
+          stage === documentPreparationStages.PROCESSING
+            ? `${getProcessingErrorMessage(originalError)} Tài liệu đã được lưu; bạn có thể thử lại từ danh sách.`
+            : stage === documentPreparationStages.INDEXING
+              ? `${getIndexingErrorMessage(originalError)} Nội dung đã xử lý vẫn được giữ lại.`
+              : getUploadErrorMessage(originalError),
+        )
+        setListRefreshVersion((version) => version + 1)
       },
       onSettled: () => {
         if (!isMountedRef.current) return

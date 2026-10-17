@@ -38,6 +38,7 @@ export function getIndexingErrorMessage(error) {
       401: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.',
       404: 'Tài liệu không tồn tại hoặc bạn không có quyền truy cập.',
       409: 'Tài liệu đang được chuẩn bị cho AI hoặc trạng thái hiện tại không cho phép thao tác này.',
+      429: 'Hệ thống đang chuẩn bị nhiều tài liệu. Vui lòng chờ một lát rồi thử lại.',
       503: 'Dịch vụ AI hoặc tìm kiếm tài liệu tạm thời không khả dụng.',
       500: 'Hệ thống đang gặp lỗi khi chuẩn bị tài liệu cho AI. Vui lòng thử lại sau.',
     }

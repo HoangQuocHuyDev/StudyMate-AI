@@ -144,7 +144,7 @@ test('deleteDocument sends one authenticated DELETE and accepts an empty 204 res
   assert.equal(capturedRequest[0].includes('user_id'), false)
 })
 
-for (const status of [401, 404, 409, 500, 503]) {
+for (const status of [401, 404, 409, 429, 500, 503]) {
   test(`deleteDocument preserves HTTP ${status} errors`, async (context) => {
     const error = new ApiHttpError('Request failed', {
       status,

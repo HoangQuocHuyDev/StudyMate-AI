@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.db.session import get_db
 from app.services.rag.chroma_vector_store import (
     ChromaVectorStore,
     ChunkQueryResult,
@@ -35,6 +36,7 @@ from app.services.rag.embedding_service import (
 from app.services.summary.concurrency import (
     CapacityConcurrencyCoordinator,
     SummaryConcurrencyLimits,
+    get_capacity_concurrency_coordinator,
 )
 
 
@@ -44,6 +46,8 @@ class RagIndexingResources:
 
     embedder: EmbeddingProvider
     vector_store: DocumentVectorStore
+    concurrency_limits: SummaryConcurrencyLimits = SummaryConcurrencyLimits()
+    concurrency_coordinator: CapacityConcurrencyCoordinator | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +233,7 @@ class _DocumentRetrievalOperation:
 
 def get_rag_indexing_resources(
     settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> Iterator[RagIndexingResources]:
     """Create external clients lazily and release request-owned resources."""
 
@@ -240,11 +245,21 @@ def get_rag_indexing_resources(
 
     embedder = _LazyGeminiEmbeddingProvider(settings)
     vector_store = _LazyChromaVectorStore(settings)
+    concurrency_limits = SummaryConcurrencyLimits(
+        global_limit=settings.indexing_global_concurrency,
+        per_user_limit=settings.indexing_user_concurrency,
+    )
 
     try:
         yield RagIndexingResources(
             embedder=embedder,
             vector_store=vector_store,
+            concurrency_limits=concurrency_limits,
+            concurrency_coordinator=get_capacity_concurrency_coordinator(
+                db,
+                namespace="document_indexing",
+                limits=concurrency_limits,
+            ),
         )
     finally:
         _close_safely(vector_store)
