@@ -4,10 +4,12 @@ import test from 'node:test'
 
 import {
   MAX_DOCX_RENDER_SIZE,
+  addDocxPreviewFontFallbacks,
   clearDocxPreview,
   getDocxRenderOptions,
   getFormattedDocxErrorMessage,
   isSafeDocxResourceUrl,
+  normalizeDocxFontsForPreview,
   renderDocxPreview,
   sanitizeDocxPreviewCss,
   validateDocxRenderBlob,
@@ -47,6 +49,36 @@ test('DOCX renderer disables active content and embeds internal resources', () =
   assert.equal(sanitized.includes('data:image/png'), true)
 })
 
+test('hAnsi font declarations gain only the ascii fallback required by docx-preview', () => {
+  const input = [
+    '<w:rFonts w:hAnsi="Times New Roman"/>',
+    '<w:rFonts w:ascii="Arial" w:hAnsi="Calibri"/>',
+    '<w:rFonts w:hAnsiTheme="minorHAnsi"/>',
+  ].join('')
+  const output = addDocxPreviewFontFallbacks(input)
+
+  assert.match(output, /w:hAnsi="Times New Roman" w:ascii="Times New Roman"/)
+  assert.match(output, /w:ascii="Arial" w:hAnsi="Calibri"/)
+  assert.doesNotMatch(output, /w:ascii="Calibri"/)
+  assert.match(output, /w:hAnsiTheme="minorHAnsi" w:asciiTheme="minorHAnsi"/)
+})
+
+test('font normalization updates an in-memory DOCX without changing its text', async () => {
+  const JSZip = (await import('jszip')).default
+  const bytes = await readFile(new URL('./fixtures/docx/typography-vietnamese.docx', import.meta.url))
+  const sourceBlob = new Blob([bytes])
+  const sourceArchive = await JSZip.loadAsync(sourceBlob)
+  const sourceXml = await sourceArchive.file('word/document.xml').async('string')
+
+  const normalizedBlob = await normalizeDocxFontsForPreview(sourceBlob)
+  const normalizedArchive = await JSZip.loadAsync(normalizedBlob)
+  const normalizedXml = await normalizedArchive.file('word/document.xml').async('string')
+
+  assert.equal(normalizedXml.replace(/<w:rFonts\b[^>]*\/>/g, ''), sourceXml.replace(/<w:rFonts\b[^>]*\/>/g, ''))
+  assert.match(normalizedXml, /w:hAnsi="Arial"[^>]*w:ascii="Arial"/)
+  assert.match(normalizedXml, /Tiếng Việt rõ ràng/)
+})
+
 test('DOCX renderer is loaded lazily and replaces only its isolated container', async () => {
   class FakeElement {
     constructor() {
@@ -81,6 +113,7 @@ test('DOCX renderer is loaded lazily and replaces only its isolated container', 
   await renderDocxPreview(new Blob(['docx']), target, {
     documentObject,
     loadRenderer,
+    normalizeFonts: async (blob) => blob,
   })
 
   assert.equal(loadCount, 1)
@@ -126,4 +159,30 @@ test('Documents keeps PDF Blob viewing and adds formatted DOCX with text fallbac
   assert.match(css, /document-viewer__docx--formatted[^}]*overflow|document-viewer__docx[^}]*overflow:\s*auto/s)
   assert.match(css, /document-viewer__docx-render section\.docx[^}]*background:\s*#fff/s)
   assert.match(themeCss, /\[data-theme='dark'\] \.document-viewer__docx-render section\.docx/)
+})
+
+test('DOCX paragraphs keep Word indentation without modal text clipping', async () => {
+  const css = await readFile(new URL('../src/components/Documents.css', import.meta.url), 'utf8')
+  const themeCss = await readFile(new URL('../src/ui-polish.css', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(css, /\.document-viewer__panel p\s*\{/)
+  assert.doesNotMatch(css, /\.document-viewer__panel h2\s*\{/)
+  assert.doesNotMatch(themeCss, /\.document-viewer__panel p\s*\{/)
+  assert.doesNotMatch(themeCss, /\.document-viewer__panel h2\s*\{/)
+  assert.match(css, /\.document-viewer__panel header p\s*\{[^}]*overflow:\s*hidden/s)
+  assert.match(css, /\.document-viewer__docx-render\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*100%;/s)
+  assert.match(css, /\.document-viewer__docx\s*\{[^}]*overflow:\s*auto;/s)
+})
+
+test('DOCX typography is isolated from the application font without overriding OOXML runs', async () => {
+  const css = await readFile(new URL('../src/components/Documents.css', import.meta.url), 'utf8')
+  const wrapperRule = css.match(/\.document-viewer__docx-render \.docx-wrapper\s*\{([^}]*)\}/s)?.[1] ?? ''
+  const sectionRule = css.match(/\.document-viewer__docx-render section\.docx\s*\{([^}]*)\}/s)?.[1] ?? ''
+
+  assert.match(wrapperRule, /font-family:\s*initial;/)
+  assert.match(wrapperRule, /font-synthesis:\s*auto;/)
+  assert.match(wrapperRule, /font-kerning:\s*auto;/)
+  assert.match(wrapperRule, /text-rendering:\s*auto;/)
+  assert.doesNotMatch(wrapperRule, /letter-spacing|word-spacing|text-align|text-align-last|font-stretch/)
+  assert.doesNotMatch(sectionRule, /font-family|letter-spacing|word-spacing|text-align|text-align-last/)
 })

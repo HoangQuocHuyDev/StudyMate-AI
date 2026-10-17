@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCX preview browser audit</title>
+    <link rel="stylesheet" href="../../src/index.css">
+    <link rel="stylesheet" href="../../src/components/Documents.css">
+    <script src="../../node_modules/jszip/dist/jszip.min.js"></script>
+    <script src="../../node_modules/docx-preview/dist/docx-preview.min.js"></script>
+    <style>
+      body { margin: 0; }
+      #audit-output { position: fixed; z-index: 10; right: 8px; bottom: 8px; max-width: 46vw; max-height: 35vh; overflow: auto; padding: 8px; background: #fff; font: 11px/1.4 monospace; }
+      .document-viewer__docx { height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <main class="document-viewer__docx document-viewer__docx--formatted">
+      <div id="preview" class="document-viewer__docx-render"></div>
+    </main>
+    <pre id="audit-output" aria-label="Computed style audit"></pre>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const fixture = params.get('file') || 'tables-left-justify.docx'
+      if (params.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark'
+      fetch(`./docx/${fixture}`)
+        .then((response) => response.blob())
+        .then((blob) => docx.renderAsync(blob, document.querySelector('#preview'), null, {
+          breakPages: true,
+          ignoreFonts: false,
+          useBase64URL: true,
+        }))
+        .then(() => {
+          const elements = [...document.querySelectorAll('section.docx p, section.docx span')]
+          const audit = elements.slice(0, 40).map((element) => {
+            const style = getComputedStyle(element)
+            return {
+              tag: element.tagName,
+              sample: element.textContent.trim().slice(0, 48),
+              table: Boolean(element.closest('table')),
+              fontFamily: style.fontFamily,
+              fontSize: style.fontSize,
+              letterSpacing: style.letterSpacing,
+              wordSpacing: style.wordSpacing,
+              textAlign: style.textAlign,
+              textAlignLast: style.textAlignLast,
+              whiteSpace: style.whiteSpace,
+              fontKerning: style.fontKerning,
+              clippedLeft: element.getBoundingClientRect().left < element.closest('section.docx').getBoundingClientRect().left,
+            }
+          })
+          document.querySelector('#audit-output').textContent = JSON.stringify(audit, null, 2)
+          document.body.dataset.ready = 'true'
+        })
+        .catch(() => { document.body.dataset.ready = 'error' })
+    </script>
+  </body>
+</html>

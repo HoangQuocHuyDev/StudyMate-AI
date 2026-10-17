@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { ApiHttpError } from '../src/services/apiClient.js'
@@ -33,6 +34,17 @@ test('question validation rejects blank and overlong content', () => {
   assert.match(getQuestionValidationMessage('   '), /nhập câu hỏi/i)
   assert.match(getQuestionValidationMessage('x'.repeat(2001)), /2.000/)
   assert.equal(getQuestionValidationMessage('Câu hỏi hợp lệ'), null)
+})
+
+test('user message bubble keeps short words together and wraps long content safely', async () => {
+  const css = await readFile(
+    new URL('../src/components/Chat.css', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(css, /\.chat-message--user \.chat-message__body \{[^}]*width: fit-content;/)
+  assert.match(css, /\.chat-message--user \.chat-message__bubble \{[^}]*width: fit-content;[^}]*max-width: 100%;/)
+  assert.match(css, /\.chat-message--user \.chat-message__bubble > p \{[^}]*overflow-wrap: anywhere;[^}]*word-break: normal;/)
 })
 
 test('citation labels use only backend citation metadata', () => {

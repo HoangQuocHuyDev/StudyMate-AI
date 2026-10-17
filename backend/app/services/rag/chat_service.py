@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,6 +46,15 @@ from app.services.rag.document_retrieval import (
 DOCUMENT_READY = "READY"
 RAG_READY = "READY"
 DEFAULT_CHAT_DEADLINE_SECONDS = 60.0
+LOCAL_GREETING_MODEL = "StudyMate AI"
+GREETING_ANSWER = (
+    "Xin chào! Mình là trợ lý StudyMate AI. "
+    "Bạn muốn tìm hiểu điều gì trong tài liệu?"
+)
+_SIMPLE_GREETINGS = frozenset(
+    {"hi", "hello", "hey", "xin chào", "chào", "chào bạn"}
+)
+_GREETING_TRAILING_PUNCTUATION = "!.,?…"
 
 
 class RetrievalService(Protocol):
@@ -215,37 +225,45 @@ def ask_document(
     )
     deadline.remaining_seconds()
 
-    limits = concurrency_limits or SummaryConcurrencyLimits()
-    try:
-        coordinator = (
-            concurrency_coordinator
-            or get_capacity_concurrency_coordinator(
-                db,
-                namespace="chat",
-                limits=limits,
-            )
+    if _is_simple_greeting(normalized_question):
+        chunks: tuple[RetrievedDocumentChunk, ...] = ()
+        validated_answer = GeneratedAnswer(
+            answer_text=GREETING_ANSWER,
+            cited_chunk_ids=[],
+            model_name=LOCAL_GREETING_MODEL,
         )
-        with coordinator.capacity(user_id):
-            deadline.remaining_seconds()
-            chunks, validated_answer = _generate_answer(
-                db,
-                retrieval_service,
-                answer_provider,
-                document_id=document_id,
-                user_id=user_id,
-                question=normalized_question,
-                deadline=deadline,
+    else:
+        limits = concurrency_limits or SummaryConcurrencyLimits()
+        try:
+            coordinator = (
+                concurrency_coordinator
+                or get_capacity_concurrency_coordinator(
+                    db,
+                    namespace="chat",
+                    limits=limits,
+                )
             )
-    except SummaryConcurrencyLimitError:
-        _safe_rollback(db)
-        raise ChatCapacityLimitError(
-            "Chat concurrency capacity is temporarily exhausted."
-        ) from None
-    except SummaryConcurrencyError:
-        _safe_rollback(db)
-        raise ChatCoordinationError(
-            "Chat concurrency coordination is unavailable."
-        ) from None
+            with coordinator.capacity(user_id):
+                deadline.remaining_seconds()
+                chunks, validated_answer = _generate_answer(
+                    db,
+                    retrieval_service,
+                    answer_provider,
+                    document_id=document_id,
+                    user_id=user_id,
+                    question=normalized_question,
+                    deadline=deadline,
+                )
+        except SummaryConcurrencyLimitError:
+            _safe_rollback(db)
+            raise ChatCapacityLimitError(
+                "Chat concurrency capacity is temporarily exhausted."
+            ) from None
+        except SummaryConcurrencyError:
+            _safe_rollback(db)
+            raise ChatCoordinationError(
+                "Chat concurrency coordination is unavailable."
+            ) from None
 
     deadline.remaining_seconds()
     return _persist_turn(
@@ -666,6 +684,15 @@ def _validate_question(question: str) -> str:
             f"Question must not exceed {MAX_QUERY_LENGTH} characters."
         )
     return normalized
+
+
+def _is_simple_greeting(question: str) -> bool:
+    """Match only a standalone greeting, never a greeting plus a question."""
+
+    normalized = unicodedata.normalize("NFKC", question).casefold().strip()
+    normalized = normalized.rstrip(_GREETING_TRAILING_PUNCTUATION).strip()
+    normalized = " ".join(normalized.split())
+    return normalized in _SIMPLE_GREETINGS
 
 
 def _end_read_transaction(db: Session) -> None:

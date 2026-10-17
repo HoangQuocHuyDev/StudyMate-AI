@@ -278,8 +278,8 @@
 .document-viewer__panel header > div { min-width: 0; }
 .document-viewer__heading { flex: 1; }
 .document-viewer__panel header span { color: #2563eb; font-size: 9px; font-weight: 750; letter-spacing: 0.8px; text-transform: uppercase; }
-.document-viewer__panel h2 { overflow: hidden; margin: 5px 0 3px; color: #263247; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.document-viewer__panel p { overflow: hidden; margin: 0; color: #7d899b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.document-viewer__panel header h2 { overflow: hidden; margin: 5px 0 3px; color: #263247; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.document-viewer__panel header p { overflow: hidden; margin: 0; color: #7d899b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .document-viewer__panel header button { display: grid; width: 36px; height: 36px; flex: 0 0 auto; padding: 0; place-items: center; border: 0; border-radius: 9px; color: #64748b; background: #f1f5f9; cursor: pointer; }
 .document-viewer__panel header button:hover { color: #334155; background: #e7edf5; }
 .document-viewer__panel header button:focus-visible, .document-viewer__docx:focus-visible { outline: 3px solid rgba(37, 99, 235, 0.28); outline-offset: 2px; }
@@ -299,8 +299,8 @@
 .document-viewer__docx { min-width: 0; overflow: auto; padding: 30px; background: #eef2f7; }
 .document-viewer__docx-content { width: min(820px, 100%); min-height: 100%; margin: 0 auto; padding: 38px 44px; overflow-wrap: anywhere; border: 1px solid #e1e6ee; border-radius: 8px; color: #29364a; background: #fff; box-shadow: 0 10px 30px rgba(48, 63, 88, 0.08); font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
 .document-viewer__docx--formatted { position: relative; padding: 0; background: #dfe5ed; }
-.document-viewer__docx-render { min-width: max-content; min-height: 100%; }
-.document-viewer__docx-render .docx-wrapper { min-height: 100%; padding: 30px; background: #dfe5ed; }
+.document-viewer__docx-render { width: max-content; min-width: 100%; min-height: 100%; }
+.document-viewer__docx-render .docx-wrapper { min-height: 100%; padding: 30px; background: #dfe5ed; font-family: initial; font-synthesis: auto; font-kerning: auto; text-rendering: auto; -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 .document-viewer__docx-render section.docx { color: #111827; background: #fff; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14); }
 .document-viewer__state--overlay { position: absolute; z-index: 2; inset: 0; min-height: 100%; }
 

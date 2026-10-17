@@ -41,6 +41,7 @@ from app.services.rag.answer_service import (
     UNVERIFIED_GROUNDING_ANSWER,
 )
 from app.services.rag.chat_service import (
+    GREETING_ANSWER,
     ChatAnswerError,
     ChatCapacityLimitError,
     ChatConcurrencyError,
@@ -355,6 +356,84 @@ def test_other_user_is_rejected_before_providers(
     with pytest.raises(ChatDocumentNotFoundError):
         ask(chat_database, retrieval=retrieval, user_id=8)
     assert retrieval.calls == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["Hi", "hello!", "HEY", "Xin chào", "Chào.", "  Chào   bạn!  "],
+)
+def test_standalone_greeting_skips_rag_and_persists_history(
+    chat_database: sessionmaker[Session],
+    question: str,
+) -> None:
+    add_ready_document(chat_database)
+    retrieval = FakeRetrieval(chunks())
+    answer = FakeAnswer()
+
+    result = ask(
+        chat_database,
+        retrieval=retrieval,
+        answer=answer,
+        question=question,
+    )
+
+    assert retrieval.calls == []
+    assert answer.calls == []
+    assert result.answer_text == GREETING_ANSWER
+    assert result.model_name == "StudyMate AI"
+    assert result.citations == []
+    with chat_database() as db:
+        messages = db.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == result.session_id)
+            .order_by(ChatMessage.sequence_no)
+        ).all()
+    assert [(message.role, message.content) for message in messages] == [
+        ("USER", question.strip()),
+        ("ASSISTANT", GREETING_ANSWER),
+    ]
+
+
+def test_greeting_with_document_question_still_uses_rag(
+    chat_database: sessionmaker[Session],
+) -> None:
+    add_ready_document(chat_database)
+    retrieval = FakeRetrieval(chunks())
+    answer = FakeAnswer()
+    question = "Hi, tài liệu này nói về gì?"
+
+    result = ask(
+        chat_database,
+        retrieval=retrieval,
+        answer=answer,
+        question=question,
+    )
+
+    assert retrieval.calls == [
+        {"document_id": 1, "user_id": 7, "query": question}
+    ]
+    assert len(answer.calls) == 1
+    assert result.citations[0].chunk_id == 101
+
+
+def test_greeting_still_requires_document_ownership(
+    chat_database: sessionmaker[Session],
+) -> None:
+    add_ready_document(chat_database)
+    retrieval = FakeRetrieval(chunks())
+    answer = FakeAnswer()
+
+    with pytest.raises(ChatDocumentNotFoundError):
+        ask(
+            chat_database,
+            retrieval=retrieval,
+            answer=answer,
+            question="Xin chào",
+            user_id=8,
+        )
+
+    assert retrieval.calls == []
+    assert answer.calls == []
 
 
 def test_session_for_another_document_is_rejected(
