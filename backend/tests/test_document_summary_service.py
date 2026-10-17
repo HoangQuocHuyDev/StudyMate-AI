@@ -55,6 +55,7 @@ from app.services.summary.concurrency import (
 )
 from app.services.summary.gemini_summary import GeneratedSummary
 from app.services.summary.gemini_summary import GeminiSummaryTimeoutError
+from app.services.text_chunker import chunk_text
 
 
 @pytest.fixture
@@ -188,6 +189,7 @@ def add_document(
     user_id: int = 7,
     status: str = "READY",
     chunks: list[tuple[int, str]] | None = None,
+    file_type: str = "DOCX",
 ) -> None:
     now = datetime.now(timezone.utc)
     with factory() as db:
@@ -202,14 +204,20 @@ def add_document(
                 created_at=now,
             ))
             db.flush()
+        extension = file_type.lower()
+        mime_type = (
+            "application/pdf"
+            if file_type == "PDF"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
         db.add(Document(
             id=document_id,
             user_id=user_id,
             title="Tài liệu kiểm thử",
-            original_filename="test.docx",
+            original_filename=f"test.{extension}",
             storage_key=f"users/{user_id}/summary-{document_id}",
-            file_type="DOCX",
-            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            file_type=file_type,
+            mime_type=mime_type,
             file_size=100,
             status=status,
             rag_status="PENDING",
@@ -218,13 +226,14 @@ def add_document(
         ))
         db.flush()
         for position, (chunk_index, content) in enumerate(chunks or []):
+            start_char = chunk_index * 100
             db.add(DocumentChunk(
                 id=document_id * 100 + position + 1,
                 document_id=document_id,
                 chunk_index=chunk_index,
                 content=content,
-                start_char=position * 100,
-                end_char=position * 100 + len(content),
+                start_char=start_char,
+                end_char=start_char + len(content),
                 character_count=len(content),
                 page_number=None,
                 created_at=now,
@@ -234,6 +243,28 @@ def add_document(
 
 def default_chunks() -> list[tuple[int, str]]:
     return [(0, "Phần đầu tài liệu."), (1, "Phần cuối tài liệu.")]
+
+
+def set_chunk_geometry(
+    factory: sessionmaker[Session],
+    rows: list[tuple[int, str, int, int, int | None]],
+) -> None:
+    """Replace test chunks with explicit source offsets and page metadata."""
+
+    with factory() as db:
+        db.query(DocumentChunk).delete()
+        for position, (chunk_index, content, start, end, page_number) in enumerate(rows):
+            db.add(DocumentChunk(
+                id=900 + position,
+                document_id=1,
+                chunk_index=chunk_index,
+                content=content,
+                start_char=start,
+                end_char=end,
+                character_count=len(content),
+                page_number=page_number,
+            ))
+        db.commit()
 
 
 def call(
@@ -287,6 +318,55 @@ def test_all_supported_summary_types_are_generated_and_saved(
         assert document.rag_status == "PENDING"
 
 
+@pytest.mark.parametrize("file_type", ["PDF", "DOCX"])
+@pytest.mark.parametrize("summary_type", ["SHORT", "STANDARD", "DETAILED"])
+@pytest.mark.parametrize("document_size", ["short", "long"])
+def test_pdf_and_docx_use_the_same_summary_pipeline(
+    summary_service_database: sessionmaker[Session],
+    file_type: str,
+    summary_type: str,
+    document_size: str,
+) -> None:
+    if document_size == "short":
+        chunks = default_chunks()
+        limits = None
+    else:
+        chunks = [
+            (0, "A" * 70),
+            (1, "B" * 70),
+            (2, "C" * 70),
+        ]
+        limits = SummaryLimits(80, 500, 2_000, 20, 3)
+
+    add_document(
+        summary_service_database,
+        chunks=chunks,
+        file_type=file_type,
+    )
+    provider = FakeSummaryProvider(
+        response_factory=lambda content, kind, stage, count: f"s{count}-{stage}"
+    )
+    result = call(
+        summary_service_database,
+        provider,
+        summary_type=summary_type,
+        limits=limits,
+    )
+
+    assert result.summary_type == summary_type
+    stages = [stage for _, _, stage in provider.calls]
+    if document_size == "short":
+        assert stages == ["FINAL"]
+    else:
+        assert len(stages) > 2
+        assert stages[-1] == "FINAL"
+        assert set(stages[:-1]) == {"MAP"}
+    with summary_service_database() as db:
+        saved = db.scalar(select(DocumentSummary))
+        assert saved is not None
+        assert saved.content == result.content
+
+
 def test_other_user_and_missing_document_are_indistinguishable(
     summary_service_database: sessionmaker[Session],
 ) -> None:
@@ -337,6 +417,129 @@ def test_chunks_are_ordered_and_short_document_uses_one_request(
     assert content.index("FIRST") < content.index("SECOND") < content.index("THIRD")
 
 
+def test_summary_removes_only_offset_proven_chunk_overlap(
+    summary_service_database: sessionmaker[Session],
+) -> None:
+    add_document(summary_service_database, chunks=[(0, "seed")])
+    set_chunk_geometry(
+        summary_service_database,
+        [
+            (0, "ABCDEFGHIJ", 0, 10, None),
+            (1, "GHIJKLMNOP", 6, 16, None),
+        ],
+    )
+    provider = FakeSummaryProvider()
+
+    call(summary_service_database, provider)
+
+    content = provider.calls[0][0]
+    assert "ABCDEFGHIJKLMNOP" in content
+    assert content.count("GHIJ") == 1
+
+
+def test_summary_reconstructs_chunker_output_without_losing_unicode_content(
+    summary_service_database: sessionmaker[Session],
+) -> None:
+    source = (
+        "Chương một trình bày kiến thức nền tảng. "
+        "Nội dung tiếng Việt phải được giữ nguyên.\n\n"
+        "Một cụm lặp hợp lệ. Một cụm lặp hợp lệ. "
+        "Kết luận của tài liệu."
+    )
+    generated_chunks = chunk_text(source, chunk_size=64, chunk_overlap=20)
+    add_document(summary_service_database, chunks=[(0, "seed")])
+    set_chunk_geometry(
+        summary_service_database,
+        [
+            (
+                chunk.index,
+                chunk.text,
+                chunk.start_char,
+                chunk.end_char,
+                chunk.page_number,
+            )
+            for chunk in generated_chunks
+        ],
+    )
+    provider = FakeSummaryProvider()
+
+    call(summary_service_database, provider)
+
+    prompt = provider.calls[0][0]
+    payload = "".join(
+        line for line in prompt.splitlines() if not line.startswith("[")
+    )
+    assert payload == source.replace("\n", "")
+    assert payload.count("Một cụm lặp hợp lệ.") == 2
+
+
+def test_summary_preserves_legitimate_repeated_text_at_distinct_offsets(
+    summary_service_database: sessionmaker[Session],
+) -> None:
+    add_document(summary_service_database, chunks=[(0, "seed")])
+    set_chunk_geometry(
+        summary_service_database,
+        [
+            (0, "LẶP HỢP LỆ", 0, 10, None),
+            (1, "LẶP HỢP LỆ", 20, 30, None),
+        ],
+    )
+    provider = FakeSummaryProvider()
+
+    call(summary_service_database, provider)
+
+    assert provider.calls[0][0].count("LẶP HỢP LỆ") == 2
+
+
+def test_summary_preserves_pdf_page_boundaries_while_deduplicating_each_page(
+    summary_service_database: sessionmaker[Session],
+) -> None:
+    add_document(
+        summary_service_database,
+        chunks=[(0, "seed")],
+        file_type="PDF",
+    )
+    set_chunk_geometry(
+        summary_service_database,
+        [
+            (0, "PAGE_ONE_TEXT", 0, 13, 1),
+            (1, "TEXT_CONTINUES", 9, 23, 1),
+            (2, "PAGE_TWO_TEXT", 24, 37, 2),
+        ],
+    )
+    provider = FakeSummaryProvider()
+
+    call(summary_service_database, provider)
+
+    content = provider.calls[0][0]
+    assert "PAGE_ONE_TEXT_CONTINUES" in content
+    assert content.count("TEXT") == 2
+    assert "Trang 1" in content
+    assert "Trang 2" in content
+    assert content.index("Trang 1") < content.index("Trang 2")
+
+
+def test_inconsistent_overlap_fails_closed_without_provider_or_cache(
+    summary_service_database: sessionmaker[Session],
+) -> None:
+    add_document(summary_service_database, chunks=[(0, "seed")])
+    set_chunk_geometry(
+        summary_service_database,
+        [
+            (0, "ABCDEFGHIJ", 0, 10, None),
+            (1, "WRONGKLMNO", 6, 16, None),
+        ],
+    )
+    provider = FakeSummaryProvider()
+
+    with pytest.raises(DocumentSummaryConflictError):
+        call(summary_service_database, provider)
+
+    assert provider.calls == []
+    with summary_service_database() as db:
+        assert db.scalar(select(func.count(DocumentSummary.id))) == 0
+
+
 def test_long_document_uses_hierarchy_keeps_last_chunk_and_bounds_context(
     summary_service_database: sessionmaker[Session],
 ) -> None:
@@ -373,8 +576,10 @@ def test_oversized_single_chunk_is_split_without_dropping_tail(
     limits = SummaryLimits(80, 500, 2_000, 20, 3)
     call(summary_service_database, provider, limits=limits)
     map_input = "\n".join(item[0] for item in provider.calls if item[2] == "MAP")
-    assert "UNIQUE_END" in map_input
-    assert "_MARKER" in map_input
+    reconstructed_payload = "".join(
+        line for line in map_input.splitlines() if not line.startswith("[")
+    )
+    assert tail in reconstructed_payload
 
 
 def test_non_reducing_intermediate_summaries_are_rejected(

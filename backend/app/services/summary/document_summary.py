@@ -148,6 +148,16 @@ class _ChunkSnapshot:
     id: int
     chunk_index: int
     content: str
+    start_char: int
+    end_char: int
+    character_count: int
+    page_number: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _SummarySourceBlock:
+    content: str
+    page_number: int | None
 
 
 @dataclass(slots=True)
@@ -264,12 +274,6 @@ def summarize_document(
         if cached is not None:
             return cached
 
-        total_chars = sum(len(chunk.content) for chunk in chunks)
-        if total_chars > active_limits.max_document_chars:
-            raise DocumentSummaryLimitError(
-                "Document exceeds the safe summary size limit."
-            )
-
         with lease.capacity(user_id):
             try:
                 generated = _generate_hierarchical_summary(
@@ -374,7 +378,15 @@ def _load_summary_source(
                 "Document has no chunks to summarize."
             )
         chunks = tuple(
-            _ChunkSnapshot(row.id, row.chunk_index, row.content)
+            _ChunkSnapshot(
+                row.id,
+                row.chunk_index,
+                row.content,
+                row.start_char,
+                row.end_char,
+                row.character_count,
+                row.page_number,
+            )
             for row in rows
         )
         cached = db.scalar(
@@ -406,12 +418,28 @@ def _generate_hierarchical_summary(
     limits: SummaryLimits,
     deadline: _SummaryDeadline,
 ) -> GeneratedSummary:
+    source_blocks = _build_summary_source_blocks(chunks)
+    total_chars = sum(len(block.content) for block in source_blocks)
+    if total_chars > limits.max_document_chars:
+        raise DocumentSummaryLimitError(
+            "Document exceeds the safe summary size limit."
+        )
+
     blocks: list[str] = []
-    for chunk in chunks:
+    for position, source_block in enumerate(source_blocks, start=1):
+        label = (
+            f"Trang {source_block.page_number}"
+            if source_block.page_number is not None
+            else (
+                "Nội dung tài liệu"
+                if len(source_blocks) == 1
+                else f"Phần {position}"
+            )
+        )
         blocks.extend(
             _split_labeled_content(
-                chunk.content,
-                label=f"Đoạn {chunk.chunk_index + 1}",
+                source_block.content,
+                label=label,
                 limit=limits.max_group_chars,
             )
         )
@@ -461,6 +489,98 @@ def _generate_hierarchical_summary(
     raise DocumentSummaryLimitError(
         "Intermediate summaries exceeded the reduction limit."
     )
+
+
+def _build_summary_source_blocks(
+    chunks: tuple[_ChunkSnapshot, ...],
+) -> tuple[_SummarySourceBlock, ...]:
+    """Merge only offset-proven chunk overlap without changing stored chunks."""
+
+    blocks: list[_SummarySourceBlock] = []
+    current_content = ""
+    current_page: int | None = None
+    previous: _ChunkSnapshot | None = None
+
+    for expected_index, chunk in enumerate(chunks):
+        _validate_chunk_snapshot(chunk, expected_index)
+        if previous is None:
+            current_content = chunk.content
+            current_page = chunk.page_number
+            previous = chunk
+            continue
+
+        if chunk.start_char < previous.start_char or chunk.end_char <= previous.end_char:
+            raise DocumentSummaryConflictError(
+                "Document chunk offsets are not safely ordered."
+            )
+
+        overlap_chars = max(0, previous.end_char - chunk.start_char)
+        if overlap_chars and chunk.page_number != previous.page_number:
+            raise DocumentSummaryConflictError(
+                "Document page boundaries overlap unexpectedly."
+            )
+        if overlap_chars:
+            previous_offset = chunk.start_char - previous.start_char
+            previous_overlap = previous.content[
+                previous_offset:previous_offset + overlap_chars
+            ]
+            current_overlap = chunk.content[:overlap_chars]
+            if previous_overlap != current_overlap:
+                raise DocumentSummaryConflictError(
+                    "Document chunk overlap is inconsistent."
+                )
+
+        continues_block = (
+            chunk.page_number == current_page
+            and chunk.start_char <= previous.end_char
+        )
+        if continues_block:
+            current_content += chunk.content[overlap_chars:]
+        else:
+            blocks.append(_SummarySourceBlock(current_content, current_page))
+            current_content = chunk.content
+            current_page = chunk.page_number
+        previous = chunk
+
+    if current_content:
+        blocks.append(_SummarySourceBlock(current_content, current_page))
+    if not blocks:
+        raise SummaryDocumentHasNoChunksError(
+            "Document has no chunks to summarize."
+        )
+    return tuple(blocks)
+
+
+def _validate_chunk_snapshot(
+    chunk: _ChunkSnapshot,
+    expected_index: int,
+) -> None:
+    if (
+        chunk.chunk_index != expected_index
+        or isinstance(chunk.start_char, bool)
+        or not isinstance(chunk.start_char, int)
+        or isinstance(chunk.end_char, bool)
+        or not isinstance(chunk.end_char, int)
+        or isinstance(chunk.character_count, bool)
+        or not isinstance(chunk.character_count, int)
+        or chunk.start_char < 0
+        or chunk.end_char <= chunk.start_char
+        or chunk.character_count != chunk.end_char - chunk.start_char
+        or not isinstance(chunk.content, str)
+        or not chunk.content
+        or len(chunk.content) != chunk.character_count
+        or (
+            chunk.page_number is not None
+            and (
+                isinstance(chunk.page_number, bool)
+                or not isinstance(chunk.page_number, int)
+                or chunk.page_number < 1
+            )
+        )
+    ):
+        raise DocumentSummaryConflictError(
+            "Document chunk metadata is inconsistent."
+        )
 
 
 def _invoke_provider(
@@ -581,7 +701,15 @@ def _persist_summary(
             .order_by(DocumentChunk.chunk_index.asc(), DocumentChunk.id.asc())
         ).all()
         current_snapshot = tuple(
-            _ChunkSnapshot(row.id, row.chunk_index, row.content)
+            _ChunkSnapshot(
+                row.id,
+                row.chunk_index,
+                row.content,
+                row.start_char,
+                row.end_char,
+                row.character_count,
+                row.page_number,
+            )
             for row in current_chunks
         )
         if current_snapshot != source_chunks:

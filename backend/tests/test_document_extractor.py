@@ -195,6 +195,42 @@ def test_extract_pdf_multiple_pages_preserves_boundary(
     assert "\f" in result.text
 
 
+def test_extract_long_pdf_preserves_all_page_text(
+    extraction_storage: tuple[FileStorage, Path],
+) -> None:
+    storage, _ = extraction_storage
+    page_texts = tuple(
+        f"Page {page_number} " + ("lesson " * 80)
+        for page_number in range(1, 21)
+    )
+    key = store_bytes(storage, make_pdf(page_texts))
+
+    result = extract_document_text(storage, storage_key=key, file_type="PDF")
+
+    assert result.page_count == 20
+    assert result.character_count == len(result.text)
+    assert "Page 1" in result.text
+    assert "Page 20" in result.text
+
+
+def test_extract_long_docx_preserves_unicode_and_paragraph_order(
+    extraction_storage: tuple[FileStorage, Path],
+) -> None:
+    storage, _ = extraction_storage
+    paragraphs = tuple(
+        f"Đoạn {index}: nội dung học tập tiếng Việt " + ("kiến thức " * 40)
+        for index in range(1, 81)
+    )
+    key = store_bytes(storage, make_docx(paragraphs=paragraphs))
+
+    result = extract_document_text(storage, storage_key=key, file_type="DOCX")
+
+    assert result.page_count is None
+    assert result.character_count == len(result.text)
+    assert result.text.index("Đoạn 1:") < result.text.index("Đoạn 80:")
+    assert "tiếng Việt" in result.text
+
+
 def test_extract_pdf_without_text_layer_requires_ocr(
     extraction_storage: tuple[FileStorage, Path],
 ) -> None:
