@@ -89,7 +89,6 @@ button, input, select, textarea { font: inherit; }
 .form-control { height: 52px; }
 .form-control input { font-size: 15px; }
 .form-field__error { font-size: 13px; }
-.remember-option { font-size: 13px; }
 .login-submit { height: 52px; font-size: 15px; }
 .login-notice { padding: 12px 16px; font-size: 13px; }
 .signup-prompt { margin-top: 24px; font-size: 13px; }
@@ -484,6 +483,17 @@ button, input, select, textarea { font: inherit; }
   .admin-table th,
   .admin-activity__disclaimer
 ) { border-color: #2d3b51; color: #b6c1d0; background: #111b2c; }
+[data-theme='dark'] .admin-table td { border-color: #2d3b51; color: #c1ccda; }
+[data-theme='dark'] .admin-table th:last-child { background: #111b2c; }
+[data-theme='dark'] .admin-table td:last-child { background: #151f31; }
+[data-theme='dark'] .admin-table tbody tr:hover td:last-child { background: #1b2a40; }
+[data-theme='dark'] .admin-empty,
+[data-theme='dark'] .admin-documents-skeleton { border-color: #29374c; color: #d9e2ee; background: #151f31; }
+@media (max-width: 720px) {
+  [data-theme='dark'] .admin-table tr { border-color: #29374c; background: #151f31; }
+  [data-theme='dark'] .admin-table td:last-child,
+  [data-theme='dark'] .admin-table tbody tr:hover td:last-child { background: transparent; }
+}
 [data-theme='dark'] .document-dropzone__copy small,
 [data-theme='dark'] .document-dropzone__copy strong { color: #cbd5e3; }
 [data-theme='dark'] .document-dropzone__icon { color: #9bbcff; background: #1c3152; box-shadow: none; }

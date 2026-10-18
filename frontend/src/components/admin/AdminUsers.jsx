@@ -18,6 +18,7 @@ import {
   createAdminUserStatusController,
   formatAdminUserDate,
   getAdminUsersAdjustedOffset,
+  getAdminRoleLabel,
   getAdminUserInitials,
   getAdminUserStatusAction,
   getAdminUsersErrorMessage,
@@ -54,6 +55,8 @@ function AdminUsers() {
   const requestRef = useRef({ id: 0, controller: null })
   const searchRef = useRef('')
   const isMountedRef = useRef(true)
+  const confirmationDialogRef = useRef(null)
+  const confirmationTriggerRef = useRef(null)
   const confirmButtonRef = useRef(null)
   const [statusController] = useState(() => createAdminUserStatusController(({
     userId,
@@ -141,24 +144,49 @@ function AdminUsers() {
 
   useEffect(() => {
     if (!selectedAction) return undefined
+    const previouslyFocused = confirmationTriggerRef.current
     document.body.classList.add('admin-modal-visible')
     confirmButtonRef.current?.focus()
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && !statusController.isPending()) {
         setSelectedAction(null)
         setActionError(null)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const dialog = confirmationDialogRef.current
+      if (!dialog) return
+      const focusable = [...dialog.querySelectorAll(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )]
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.body.classList.remove('admin-modal-visible')
       document.removeEventListener('keydown', handleKeyDown)
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
     }
   }, [selectedAction, statusController])
 
   const openStatusConfirmation = (account) => {
     const action = getAdminUserStatusAction(account, currentUser?.id)
     if (!action) return
+    confirmationTriggerRef.current = document.activeElement
     setActionError(null)
     setSuccessMessage(null)
     setSelectedAction(action)
@@ -213,18 +241,18 @@ function AdminUsers() {
           <h2 id="admin-users-title">Danh sách người dùng</h2>
           <span>Xem và kiểm soát trạng thái các tài khoản trong hệ thống.</span>
         </div>
-        <strong>{data ? `${data.total} tài khoản` : 'Đang đồng bộ'}</strong>
+        <strong>{data ? `${data.total} tài khoản` : 'Đang cập nhật'}</strong>
       </div>
 
       <div className="admin-toolbar" aria-label="Bộ lọc người dùng">
         <label className="admin-search">
           <Icon name="search" size={18} />
-          <span className="sr-only">Tìm theo username</span>
+          <span className="sr-only">Tìm theo tên đăng nhập</span>
           <input
             type="search"
             value={searchInput}
             maxLength={255}
-            placeholder="Tìm theo username..."
+            placeholder="Tìm theo tên đăng nhập..."
             onChange={(event) => setSearchInput(event.target.value)}
           />
           {searchInput && (
@@ -237,8 +265,8 @@ function AdminUsers() {
           <span>Vai trò</span>
           <select value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setOffset(0) }}>
             <option value="all">Tất cả</option>
-            <option value="USER">USER</option>
-            <option value="ADMIN">ADMIN</option>
+            <option value="USER">Người dùng</option>
+            <option value="ADMIN">Quản trị viên</option>
           </select>
           <Icon name="chevronDown" size={15} />
         </label>
@@ -280,20 +308,20 @@ function AdminUsers() {
 
       {data && users.length > 0 && (
         <>
-          <div className="admin-table-wrap" aria-busy={state.status === 'loading'}>
+          <div className="admin-table-wrap" role="region" tabIndex="0" aria-label="Bảng người dùng, có thể cuộn ngang" aria-busy={state.status === 'loading'}>
             <table className="admin-table admin-users-table">
-              <thead><tr><th>ID</th><th>Họ tên</th><th>Username</th><th>Vai trò</th><th>Trạng thái</th><th>Ngày đăng ký</th><th>Thao tác</th></tr></thead>
+              <thead><tr><th>Mã người dùng</th><th>Họ tên</th><th>Tên đăng nhập</th><th>Vai trò</th><th>Trạng thái</th><th>Ngày đăng ký</th><th>Thao tác</th></tr></thead>
               <tbody>
                 {users.map((account) => {
                   const isCurrentAdmin = account.id === currentUser?.id
                   return (
                     <tr key={account.id}>
-                      <td data-label="ID"><span className="admin-user-id">#{account.id}</span></td>
+                      <td data-label="Mã người dùng"><span className="admin-user-id">{account.id}</span></td>
                       <td data-label="Họ tên">
                         <div className="admin-user-cell"><span>{getAdminUserInitials(account.full_name)}</span><div><strong>{account.full_name}</strong>{isCurrentAdmin && <small>Tài khoản hiện tại</small>}</div></div>
                       </td>
-                      <td data-label="Username"><span className="admin-username">@{account.username}</span></td>
-                      <td data-label="Vai trò"><span className={`admin-role admin-role--${account.role === 'ADMIN' ? 'admin' : 'student'}`}>{account.role}</span></td>
+                      <td data-label="Tên đăng nhập"><span className="admin-username">@{account.username}</span></td>
+                      <td data-label="Vai trò"><span className={`admin-role admin-role--${account.role === 'ADMIN' ? 'admin' : 'student'}`}>{getAdminRoleLabel(account.role)}</span></td>
                       <td data-label="Trạng thái"><span className={`admin-status admin-status--${account.is_active ? 'active' : 'locked'}`}><i />{account.is_active ? 'Đang hoạt động' : 'Đã khóa'}</span></td>
                       <td data-label="Ngày đăng ký"><time dateTime={account.created_at}>{formatAdminUserDate(account.created_at)}</time></td>
                       <td data-label="Thao tác">
@@ -330,7 +358,7 @@ function AdminUsers() {
 
       {selectedAction && (
         <div className="admin-modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeConfirmation() }}>
-          <div className="admin-dialog admin-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="admin-status-dialog-title" aria-describedby="admin-status-dialog-description">
+          <div ref={confirmationDialogRef} className="admin-dialog admin-dialog--confirm" tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="admin-status-dialog-title" aria-describedby="admin-status-dialog-description">
             <span className={`admin-confirm__icon ${selectedAction.desiredStatus ? 'admin-confirm__icon--unlock' : ''}`}><Icon name={selectedAction.desiredStatus ? 'unlock' : 'lock'} size={24} /></span>
             <h2 id="admin-status-dialog-title">{selectedAction.title}</h2>
             <p id="admin-status-dialog-description">

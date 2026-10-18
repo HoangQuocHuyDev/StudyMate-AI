@@ -281,7 +281,7 @@ function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           <section className="history-list" aria-labelledby="history-list-title" aria-busy={loading || loadingMore}>
             <div className="history-list__heading">
               <h2 id="history-list-title">Các cuộc trò chuyện</h2>
-              <span>{total} phiên</span>
+              <span>{total} cuộc trò chuyện</span>
             </div>
 
             {error && conversations.length > 0 && (
@@ -318,7 +318,7 @@ function History({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                 <p>
                   {viewState === 'filtered-empty'
                     ? 'Hãy thử từ khóa khác hoặc thay đổi khoảng thời gian.'
-                    : 'Các phiên hỏi đáp với tài liệu sẽ xuất hiện tại đây sau khi được lưu.'}
+                    : 'Các cuộc hỏi đáp với tài liệu sẽ xuất hiện tại đây sau khi được lưu.'}
                 </p>
                 {viewState === 'filtered-empty' && (
                   <button type="button" onClick={resetFilters}>Xóa bộ lọc</button>

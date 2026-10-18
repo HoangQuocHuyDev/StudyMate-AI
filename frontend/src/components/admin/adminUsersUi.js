@@ -17,6 +17,10 @@ const SENSITIVE_USER_KEYS = ['password_hash', 'token_version', 'password', 'acce
 
 export const ADMIN_USERS_PAGE_SIZE = 20
 
+export function getAdminRoleLabel(role) {
+  return role === 'ADMIN' ? 'Quản trị viên' : 'Người dùng'
+}
+
 function isPositiveInteger(value) {
   return Number.isInteger(value) && value > 0
 }

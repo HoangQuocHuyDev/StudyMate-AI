@@ -89,7 +89,7 @@ export function buildChatStatusMessages(documents) {
     if (count > 0) messages.push(`${count} tài liệu ${text}`)
   }
   add('not_processed', 'chưa xử lý xong.')
-  add('no_chunks', 'chưa có đoạn nội dung để tra cứu.')
+  add('no_chunks', 'chưa có nội dung để tra cứu.')
   add('not_indexed', 'chưa được chuẩn bị cho AI.')
   add('indexing', 'đang được chuẩn bị cho AI.')
   add('index_failed', 'chuẩn bị cho AI thất bại.')

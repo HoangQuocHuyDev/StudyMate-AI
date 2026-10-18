@@ -442,7 +442,7 @@ function DocumentCard({
               </span>
             </div>
             <dl className="document-card__metrics">
-              <div><dt>Chunks</dt><dd>{formatMetric(document.chunk_count, 'đoạn')}</dd></div>
+              <div><dt>Phần nội dung</dt><dd>{formatMetric(document.chunk_count, 'phần')}</dd></div>
               <div><dt>Ký tự</dt><dd>{formatMetric(document.character_count, 'ký tự')}</dd></div>
               <div><dt>Số trang</dt><dd>{formatMetric(document.page_count, 'trang')}</dd></div>
               <div><dt>Xử lý lúc</dt><dd>{document.processed_at ? formatCreatedAt(document.processed_at) : 'Chưa có'}</dd></div>
@@ -1721,7 +1721,7 @@ function Documents({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
               <div className="documents-list-state" role="status" aria-live="polite">
                 <span className="documents-list-spinner" aria-hidden="true" />
                 <h3>Đang tải tài liệu</h3>
-                <p>Danh sách đang được đồng bộ từ hệ thống.</p>
+                <p>Đang chuẩn bị danh sách tài liệu của bạn.</p>
               </div>
             )}
 

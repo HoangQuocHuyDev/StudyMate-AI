@@ -48,7 +48,7 @@ function AdminDashboard() {
             <div><p>{title.eyebrow}</p><h1>{title.title}</h1></div>
           </div>
           <div className="admin-header__right">
-            <span className="admin-role-badge"><Icon name="shield" size={15} />ADMIN</span>
+            <span className="admin-role-badge"><Icon name="shield" size={15} />Quản trị viên</span>
             <div className="admin-profile"><span>{userInitials}</span><div><strong>{displayName}</strong><small>{roleLabel}</small></div></div>
           </div>
         </header>

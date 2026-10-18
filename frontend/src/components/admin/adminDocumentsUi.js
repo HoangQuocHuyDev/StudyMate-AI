@@ -74,7 +74,7 @@ function validateOwner(owner) {
     || typeof owner.full_name !== 'string'
     || !owner.full_name.trim()
   ) {
-    throw new TypeError('Thông tin chủ sở hữu tài liệu không hợp lệ.')
+    throw new TypeError('Thông tin người tải lên không hợp lệ.')
   }
   return {
     id: owner.id,

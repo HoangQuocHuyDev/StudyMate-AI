@@ -89,7 +89,7 @@ export function buildDocumentStatusMessages(counts = {}) {
     messages.push(`${counts.notReady} tài liệu chưa xử lý xong.`)
   }
   if (counts.noChunks > 0) {
-    messages.push(`${counts.noChunks} tài liệu đã xử lý nhưng chưa có đoạn nội dung.`)
+    messages.push(`${counts.noChunks} tài liệu đã xử lý nhưng chưa có nội dung để tóm tắt.`)
   }
   if (counts.unavailable > 0) {
     messages.push(`Không thể kiểm tra trạng thái của ${counts.unavailable} tài liệu do lỗi kết nối hoặc hệ thống.`)

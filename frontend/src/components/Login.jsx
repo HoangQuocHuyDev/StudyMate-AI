@@ -40,7 +40,7 @@ function Login() {
   const { loginSession } = useAuth()
   const { currentSearch, navigate } = useNavigation()
   const passwordWasChanged = new URLSearchParams(currentSearch).get('password_changed') === '1'
-  const [form, setForm] = useState({ username: '', password: '', remember: false })
+  const [form, setForm] = useState({ username: '', password: '' })
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
   const [notice, setNotice] = useState(() => (
@@ -66,8 +66,8 @@ function Login() {
   }
 
   const handleChange = (event) => {
-    const { name, value, checked, type } = event.target
-    setForm((current) => ({ ...current, [name]: type === 'checkbox' ? checked : value }))
+    const { name, value } = event.target
+    setForm((current) => ({ ...current, [name]: value }))
     if (errors[name]) setErrors((current) => ({ ...current, [name]: '' }))
     if (notice) setNotice('')
     setIsPasswordChangedNotice(false)
@@ -209,14 +209,6 @@ function Login() {
                 </div>
                 {errors.password && <p className="form-field__error" id="password-error">{errors.password}</p>}
               </div>
-
-              <label className="remember-option">
-                <input name="remember" type="checkbox" checked={form.remember} onChange={handleChange} />
-                <span aria-hidden="true">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m3.5 8 3 3 6-6" /></svg>
-                </span>
-                Ghi nhớ đăng nhập
-              </label>
 
               <button className="login-submit" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}>
                 {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}

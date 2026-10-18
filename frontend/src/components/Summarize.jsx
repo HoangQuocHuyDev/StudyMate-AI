@@ -113,7 +113,7 @@ function DocumentSelector({
           {selectedDocument && (
             <div className="selected-document">
               <div className={`selected-document__icon selected-document__icon--${selectedDocument.file_type?.toLowerCase()}`}><Icon name="file" size={22} /></div>
-              <div><strong>{selectedDocument.title}</strong><span>{selectedDocument.file_type} · {selectedDocument.chunk_count.toLocaleString('vi-VN')} đoạn</span></div>
+              <div><strong>{selectedDocument.title}</strong><span>{selectedDocument.file_type} · {selectedDocument.chunk_count.toLocaleString('vi-VN')} phần nội dung</span></div>
               <span className="selected-document__ready"><i />Sẵn sàng</span>
             </div>
           )}
@@ -215,7 +215,6 @@ function SummaryResult({ copied, documentName, error, isGenerating, isLoading, o
         <div><p>Bản tóm tắt</p><h3>{documentName}</h3></div><span>{typeLabel}</span>
       </div>
       <div className="summary-result__meta">
-        {result.model_name && <span>Mô hình AI: <strong>{result.model_name}</strong></span>}
         {result.created_at && <span>Tạo lúc: <strong>{formatDateTime(result.created_at)}</strong></span>}
       </div>
       <div className="summary-result__content chat-markdown"><AssistantMarkdown content={result.content} /></div>

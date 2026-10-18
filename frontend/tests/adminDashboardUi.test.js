@@ -114,8 +114,8 @@ test('recent activity uses only identifiers supplied by the API', () => {
   }
   const validated = validateAdminRecentActivitiesResponse(response)
   const presentation = getAdminRecentActivityPresentation(validated.items[0])
-  assert.equal(presentation.title, 'Cuộc hội thoại #45 được tạo')
-  assert.equal(presentation.detail, 'Tài liệu #12 · Người dùng #2')
+  assert.equal(presentation.title, 'Cuộc hội thoại mã 45 được tạo')
+  assert.equal(presentation.detail, 'Mã tài liệu 12 · Mã người dùng 2')
   assert.equal(JSON.stringify(presentation).includes('Nguyễn'), false)
 })
 

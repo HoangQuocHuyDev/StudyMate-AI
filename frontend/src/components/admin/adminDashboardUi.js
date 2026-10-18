@@ -6,9 +6,9 @@ import {
 
 
 export const ADMIN_STATISTICS = Object.freeze([
-  { key: 'user_count', label: 'Tổng người dùng', description: 'Gồm tài khoản USER và ADMIN', icon: 'users', tone: 'blue' },
+  { key: 'user_count', label: 'Tổng người dùng', description: 'Gồm người dùng và quản trị viên', icon: 'users', tone: 'blue' },
   { key: 'document_count', label: 'Tổng tài liệu', description: 'Tài liệu hiện còn trong hệ thống', icon: 'documents', tone: 'cyan' },
-  { key: 'chat_session_count', label: 'Tổng cuộc hội thoại', description: 'Phiên hỏi đáp thuộc tài liệu hợp lệ', icon: 'chat', tone: 'violet' },
+  { key: 'chat_session_count', label: 'Tổng cuộc hội thoại', description: 'Các cuộc hỏi đáp thuộc tài liệu hiện có', icon: 'chat', tone: 'violet' },
   { key: 'processing_document_count', label: 'Tài liệu đang xử lý', description: 'Đang xử lý nội dung hoặc chuẩn bị cho AI', icon: 'history', tone: 'amber' },
 ])
 
@@ -19,7 +19,7 @@ export const ADMIN_NAVIGATION = Object.freeze([
 ])
 
 export const ADMIN_ACTIVITY_SERIES = Object.freeze([
-  { key: 'registered_user_count', label: 'Tài khoản đăng ký', tone: 'blue' },
+  { key: 'registered_user_count', label: 'Tài khoản mới', tone: 'blue' },
   { key: 'uploaded_document_count', label: 'Tài liệu tải lên', tone: 'cyan' },
   { key: 'created_chat_session_count', label: 'Cuộc hội thoại', tone: 'violet' },
   { key: 'generated_summary_count', label: 'Bản tóm tắt', tone: 'amber' },
@@ -28,38 +28,38 @@ export const ADMIN_ACTIVITY_SERIES = Object.freeze([
 const ACTIVITY_PRESENTATION = Object.freeze({
   USER_REGISTERED: {
     icon: 'users', tone: 'blue',
-    title: ({ user_id: userId }) => `Tài khoản #${userId} được tạo`,
+    title: ({ user_id: userId }) => `Tài khoản mã ${userId} được tạo`,
     detail: () => 'Đăng ký tài khoản mới',
   },
   DOCUMENT_UPLOADED: {
     icon: 'upload', tone: 'cyan',
-    title: ({ document_id: documentId }) => `Tài liệu #${documentId} được tải lên`,
-    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Người dùng #${userId}`,
+    title: ({ document_id: documentId }) => `Tài liệu mã ${documentId} được tải lên`,
+    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Mã người dùng ${userId}`,
   },
   DOCUMENT_PROCESSED: {
     icon: 'check', tone: 'cyan',
-    title: ({ document_id: documentId }) => `Tài liệu #${documentId} đã xử lý xong`,
-    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Người dùng #${userId}`,
+    title: ({ document_id: documentId }) => `Tài liệu mã ${documentId} đã xử lý xong`,
+    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Mã người dùng ${userId}`,
   },
   DOCUMENT_INDEXED: {
     icon: 'sparkle', tone: 'violet',
-    title: ({ document_id: documentId }) => `Tài liệu #${documentId} đã sẵn sàng cho AI`,
-    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Người dùng #${userId}`,
+    title: ({ document_id: documentId }) => `Tài liệu mã ${documentId} đã sẵn sàng cho AI`,
+    detail: ({ file_type: fileType, user_id: userId }) => `${fileType} · Mã người dùng ${userId}`,
   },
   SUMMARY_CREATED: {
     icon: 'summary', tone: 'amber',
-    title: ({ resource_id: summaryId }) => `Bản tóm tắt #${summaryId} được tạo`,
-    detail: ({ document_id: documentId, user_id: userId }) => `Tài liệu #${documentId} · Người dùng #${userId}`,
+    title: ({ resource_id: summaryId }) => `Bản tóm tắt mã ${summaryId} được tạo`,
+    detail: ({ document_id: documentId, user_id: userId }) => `Mã tài liệu ${documentId} · Mã người dùng ${userId}`,
   },
   CHAT_SESSION_CREATED: {
     icon: 'chat', tone: 'violet',
-    title: ({ session_id: sessionId }) => `Cuộc hội thoại #${sessionId} được tạo`,
-    detail: ({ document_id: documentId, user_id: userId }) => `Tài liệu #${documentId} · Người dùng #${userId}`,
+    title: ({ session_id: sessionId }) => `Cuộc hội thoại mã ${sessionId} được tạo`,
+    detail: ({ document_id: documentId, user_id: userId }) => `Mã tài liệu ${documentId} · Mã người dùng ${userId}`,
   },
   DOCUMENT_DELETED: {
     icon: 'trash', tone: 'red',
-    title: ({ document_id: documentId }) => `Tài liệu #${documentId} đã được xóa`,
-    detail: ({ user_id: userId }) => `Người dùng #${userId}`,
+    title: ({ document_id: documentId }) => `Tài liệu mã ${documentId} đã được xóa`,
+    detail: ({ user_id: userId }) => `Mã người dùng ${userId}`,
   },
 })
 

@@ -140,7 +140,7 @@ function ChatMessage({ message, onCopy, onCitationSelect, copied, userInitials }
       <div className="chat-message__body">
         <div className="chat-message__label">
           <strong>StudyMate AI</strong>
-          <span>{message.model_name || 'Trả lời từ tài liệu của bạn'}</span>
+          <span>Trợ lý học tập</span>
         </div>
         <div className="chat-message__bubble">
           <AssistantMarkdown content={message.content} />
@@ -238,6 +238,8 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
   const shouldAutoScroll = useRef(true)
   const pendingScrollRestore = useRef(null)
   const inputRef = useRef(null)
+  const citationPanelRef = useRef(null)
+  const citationCloseRef = useRef(null)
 
   const selectedDocument = useMemo(
     () => documents.find((document) => document.id === selectedDocumentId) ?? null,
@@ -823,14 +825,41 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
 
   useEffect(() => {
     if (!citationState.open) return undefined
+    const previouslyFocused = document.activeElement
+    citationCloseRef.current?.focus()
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') closeCitationPanel()
+      if (event.key === 'Escape') {
+        closeCitationPanel()
+        return
+      }
+      if (event.key !== 'Tab' || !citationPanelRef.current) return
+
+      const focusable = Array.from(citationPanelRef.current.querySelectorAll(
+        'button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+      ))
+      if (focusable.length === 0) {
+        event.preventDefault()
+        citationPanelRef.current.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', handleKeyDown)
     document.body.classList.add('chat-citation-modal-open')
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.body.classList.remove('chat-citation-modal-open')
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus()
+      }
     }
   }, [citationState.open, closeCitationPanel])
 
@@ -1174,7 +1203,7 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
                       <div className="chat-selected-document__copy">
                         <h3>{selectedDocument.title}</h3>
                         <p>{selectedDocument.original_filename}</p>
-                        <span><i />Sẵn sàng hỏi đáp · {selectedDocument.chunk_count} đoạn</span>
+                        <span><i />Sẵn sàng hỏi đáp · {selectedDocument.chunk_count} phần nội dung</span>
                       </div>
                     </div>
                   )}
@@ -1362,7 +1391,12 @@ function Chat({ isSidebarOpen, onOpenSidebar, onCloseSidebar }) {
           </div>
         </main>
       </div>
-      <CitationDetailPanel state={citationState} onClose={closeCitationPanel} />
+      <CitationDetailPanel
+        state={citationState}
+        onClose={closeCitationPanel}
+        panelRef={citationPanelRef}
+        closeButtonRef={citationCloseRef}
+      />
     </div>
   )
 }

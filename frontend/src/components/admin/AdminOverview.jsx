@@ -141,7 +141,7 @@ function AdminOverview({ displayName, onNavigate }) {
 
       <div className="admin-section-heading admin-overview__heading">
         <div><p>Tổng quan hệ thống</p><h2>Chỉ số quản trị</h2><span>Số liệu được cập nhật từ hệ thống và không bao gồm tài liệu đang xóa.</span></div>
-        <strong>{overviewData ? 'Dữ liệu trực tiếp' : 'Đang đồng bộ'}</strong>
+        <strong>{overviewData ? 'Đã cập nhật' : 'Đang cập nhật'}</strong>
       </div>
 
       {state.overview.status === 'loading' && !overviewData && (
@@ -182,7 +182,7 @@ function AdminOverview({ displayName, onNavigate }) {
         <section className="admin-panel admin-chart-panel" aria-labelledby="admin-chart-title">
           <div className="admin-panel__heading">
             <div><p>Hoạt động hệ thống</p><h2 id="admin-chart-title">7 ngày gần nhất</h2></div>
-            <span>UTC</span>
+            <span>Giờ UTC</span>
           </div>
 
           {state.activity.status === 'loading' && !activityChart && (
@@ -234,7 +234,7 @@ function AdminOverview({ displayName, onNavigate }) {
         <section className="admin-panel admin-activity" aria-labelledby="admin-activity-title">
           <div className="admin-panel__heading">
             <div><p>Cập nhật gần đây</p><h2 id="admin-activity-title">Hoạt động mới</h2></div>
-            <span>Tối đa 10</span>
+            <span>10 mục gần nhất</span>
           </div>
 
           {state.recent.status === 'loading' && !state.recent.data && (
@@ -267,7 +267,7 @@ function AdminOverview({ displayName, onNavigate }) {
                   })}
                 </div>
               )}
-              <p className="admin-activity__disclaimer">Hoạt động được tổng hợp từ dữ liệu hiện tại, không phải nhật ký kiểm toán đầy đủ.</p>
+              <p className="admin-activity__disclaimer">Hoạt động được tổng hợp từ dữ liệu hiện có và không thay thế lịch sử theo dõi đầy đủ.</p>
             </>
           )}
 

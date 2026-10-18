@@ -162,18 +162,18 @@ function AdminDocuments() {
     <section className="admin-management" aria-labelledby="admin-documents-title">
       <div className="admin-section-heading">
         <div><p>Kho tài liệu hệ thống</p><h2 id="admin-documents-title">Danh sách tài liệu</h2><span>Xem thông tin tài liệu toàn hệ thống mà không truy cập nội dung riêng tư.</span></div>
-        <strong>{data ? `${data.total} tài liệu` : 'Đang đồng bộ'}</strong>
+        <strong>{data ? `${data.total} tài liệu` : 'Đang cập nhật'}</strong>
       </div>
 
       <div className="admin-toolbar admin-documents-toolbar" aria-label="Bộ lọc tài liệu">
         <label className="admin-search">
-          <Icon name="search" size={18} /><span className="sr-only">Tìm theo tên tài liệu hoặc tên file</span>
-          <input type="search" value={searchInput} maxLength={255} placeholder="Tìm tên tài liệu hoặc tên file..." onChange={(event) => setSearchInput(event.target.value)} />
+          <Icon name="search" size={18} /><span className="sr-only">Tìm theo tên tài liệu hoặc tên tệp</span>
+          <input type="search" value={searchInput} maxLength={255} placeholder="Tìm tên tài liệu hoặc tên tệp..." onChange={(event) => setSearchInput(event.target.value)} />
           {searchInput && <button type="button" onClick={() => setSearchInput('')} aria-label="Xóa từ khóa tìm kiếm"><Icon name="close" size={15} /></button>}
         </label>
-        <label className="admin-filter"><span>Loại</span><select value={fileType} onChange={(event) => { setFileType(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="PDF">PDF</option><option value="DOCX">DOCX</option></select><Icon name="chevronDown" size={15} /></label>
-        <label className="admin-filter"><span>Xử lý</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="UPLOADED">Chưa xử lý</option><option value="PROCESSING">Đang xử lý</option><option value="READY">Đã xử lý</option><option value="FAILED">Thất bại</option></select><Icon name="chevronDown" size={15} /></label>
-        <label className="admin-filter"><span>Hỏi đáp AI</span><select value={ragStatusFilter} onChange={(event) => { setRagStatusFilter(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="PENDING">Chưa sẵn sàng</option><option value="INDEXING">Đang chuẩn bị</option><option value="READY">Sẵn sàng</option><option value="FAILED">Chuẩn bị thất bại</option></select><Icon name="chevronDown" size={15} /></label>
+        <label className="admin-filter"><span>Loại tệp</span><select value={fileType} onChange={(event) => { setFileType(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="PDF">PDF</option><option value="DOCX">DOCX</option></select><Icon name="chevronDown" size={15} /></label>
+        <label className="admin-filter"><span>Trạng thái xử lý</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="UPLOADED">Chưa xử lý</option><option value="PROCESSING">Đang xử lý</option><option value="READY">Đã xử lý</option><option value="FAILED">Xử lý thất bại</option></select><Icon name="chevronDown" size={15} /></label>
+        <label className="admin-filter"><span>Trạng thái hỏi đáp</span><select value={ragStatusFilter} onChange={(event) => { setRagStatusFilter(event.target.value); setOffset(0) }}><option value="all">Tất cả</option><option value="PENDING">Chưa sẵn sàng</option><option value="INDEXING">Đang chuẩn bị</option><option value="READY">Sẵn sàng</option><option value="FAILED">Chuẩn bị thất bại</option></select><Icon name="chevronDown" size={15} /></label>
       </div>
 
       {state.status === 'error' && data && <div className="admin-refresh-error" role="alert"><span>{state.error} Dữ liệu trước đó vẫn được giữ nguyên.</span><button type="button" onClick={loadDocuments}>Thử lại</button></div>}
@@ -183,18 +183,18 @@ function AdminDocuments() {
 
       {data && documents.length > 0 && (
         <>
-          <div className="admin-table-wrap" aria-busy={state.status === 'loading'}>
+          <div className="admin-table-wrap" role="region" tabIndex="0" aria-label="Bảng tài liệu, có thể cuộn ngang" aria-busy={state.status === 'loading'}>
             <table className="admin-table admin-documents-table">
-              <thead><tr><th>ID</th><th>Tài liệu</th><th>Loại</th><th>Dung lượng</th><th>Chủ sở hữu</th><th>Xử lý</th><th>Hỏi đáp AI</th><th>Ngày tải</th><th>Thao tác</th></tr></thead>
+              <thead><tr><th>Mã tài liệu</th><th>Tài liệu</th><th>Loại tệp</th><th>Dung lượng</th><th>Người tải lên</th><th>Trạng thái xử lý</th><th>Trạng thái hỏi đáp</th><th>Ngày tải</th><th>Thao tác</th></tr></thead>
               <tbody>{documents.map((document) => (
                 <tr key={document.id}>
-                  <td data-label="ID"><span className="admin-user-id">#{document.id}</span></td>
-                  <td data-label="Tài liệu"><div className="admin-document-cell"><span className={`admin-document-cell__icon admin-document-cell__icon--${document.file_type.toLowerCase()}`}><Icon name="file" size={20} /></span><div><strong>{document.title}</strong><small title={document.original_filename}>{document.original_filename}</small></div></div></td>
-                  <td data-label="Loại"><span className={`admin-file-type admin-file-type--${document.file_type.toLowerCase()}`}>{document.file_type}</span></td>
+                  <td data-label="Mã tài liệu"><span className="admin-user-id">{document.id}</span></td>
+                  <td data-label="Tài liệu"><div className="admin-document-cell"><span className={`admin-document-cell__icon admin-document-cell__icon--${document.file_type.toLowerCase()}`}><Icon name="file" size={20} /></span><div><strong title={document.title}>{document.title}</strong><small title={document.original_filename}>{document.original_filename}</small></div></div></td>
+                  <td data-label="Loại tệp"><span className={`admin-file-type admin-file-type--${document.file_type.toLowerCase()}`}>{document.file_type}</span></td>
                   <td data-label="Dung lượng">{formatAdminDocumentSize(document.file_size)}</td>
-                  <td data-label="Chủ sở hữu"><span className="admin-owner">@{document.owner.username}</span></td>
-                  <td data-label="Xử lý"><StatusBadge presentation={getDocumentStatusPresentation(document.status)} /></td>
-                  <td data-label="Hỏi đáp AI"><StatusBadge presentation={getRagStatusPresentation(document.rag_status)} /></td>
+                  <td data-label="Người tải lên"><span className="admin-owner">@{document.owner.username}</span></td>
+                  <td data-label="Trạng thái xử lý"><StatusBadge presentation={getDocumentStatusPresentation(document.status)} /></td>
+                  <td data-label="Trạng thái hỏi đáp"><StatusBadge presentation={getRagStatusPresentation(document.rag_status)} /></td>
                   <td data-label="Ngày tải"><time dateTime={document.created_at}>{formatAdminDocumentDate(document.created_at)}</time></td>
                   <td data-label="Thao tác"><div className="admin-row-actions"><button type="button" onClick={() => openDetail(document)}><Icon name="eye" size={15} />Chi tiết</button></div></td>
                 </tr>
@@ -211,7 +211,7 @@ function AdminDocuments() {
         {detailState.status === 'ready' && (() => {
           const detail = detailState.detail
           return <><div className="admin-detail-document"><span className={`admin-document-cell__icon admin-document-cell__icon--${detail.file_type.toLowerCase()}`}><Icon name="file" size={25} /></span><div><strong>{detail.title}</strong><span>{detail.original_filename}</span></div></div><dl className="admin-detail-list admin-document-detail-list">
-            <DetailRow label="ID tài liệu">#{detail.id}</DetailRow><DetailRow label="Loại file">{detail.file_type}</DetailRow><DetailRow label="Dung lượng">{formatAdminDocumentSize(detail.file_size)}</DetailRow><DetailRow label="Kiểu nội dung">{detail.mime_type}</DetailRow><DetailRow label="Trạng thái xử lý"><StatusBadge presentation={getDocumentStatusPresentation(detail.status)} /></DetailRow><DetailRow label="Trạng thái hỏi đáp AI"><StatusBadge presentation={getRagStatusPresentation(detail.rag_status)} /></DetailRow><DetailRow label="Số trang">{detail.page_count ?? 'Chưa xác định'}</DetailRow><DetailRow label="Số ký tự">{detail.character_count?.toLocaleString('vi-VN') ?? 'Chưa xác định'}</DetailRow><DetailRow label="Chủ sở hữu">@{detail.owner.username} · #{detail.owner.id}</DetailRow><DetailRow label="Họ tên">{detail.owner.full_name}</DetailRow><DetailRow label="Ngày tải">{formatAdminDocumentDate(detail.created_at, true)}</DetailRow><DetailRow label="Cập nhật">{formatAdminDocumentDate(detail.updated_at, true)}</DetailRow><DetailRow label="Xử lý xong">{formatAdminDocumentDate(detail.processed_at, true)}</DetailRow><DetailRow label="Sẵn sàng cho AI">{formatAdminDocumentDate(detail.indexed_at, true)}</DetailRow>
+            <DetailRow label="Mã tài liệu">{detail.id}</DetailRow><DetailRow label="Loại tệp">{detail.file_type}</DetailRow><DetailRow label="Dung lượng">{formatAdminDocumentSize(detail.file_size)}</DetailRow><DetailRow label="Định dạng tệp">{detail.mime_type}</DetailRow><DetailRow label="Trạng thái xử lý"><StatusBadge presentation={getDocumentStatusPresentation(detail.status)} /></DetailRow><DetailRow label="Trạng thái hỏi đáp"><StatusBadge presentation={getRagStatusPresentation(detail.rag_status)} /></DetailRow><DetailRow label="Số trang">{detail.page_count ?? 'Chưa xác định'}</DetailRow><DetailRow label="Số ký tự">{detail.character_count?.toLocaleString('vi-VN') ?? 'Chưa xác định'}</DetailRow><DetailRow label="Người tải lên">@{detail.owner.username} · Mã người dùng {detail.owner.id}</DetailRow><DetailRow label="Họ tên">{detail.owner.full_name}</DetailRow><DetailRow label="Ngày tải">{formatAdminDocumentDate(detail.created_at, true)}</DetailRow><DetailRow label="Cập nhật lần cuối">{formatAdminDocumentDate(detail.updated_at, true)}</DetailRow><DetailRow label="Hoàn tất xử lý">{formatAdminDocumentDate(detail.processed_at, true)}</DetailRow><DetailRow label="Sẵn sàng cho AI">{formatAdminDocumentDate(detail.indexed_at, true)}</DetailRow>
           </dl><p className="admin-detail-note">Trang quản trị chỉ hiển thị thông tin cơ bản. Nội dung tài liệu và dữ liệu hỏi đáp riêng tư không được cung cấp tại đây.</p></>
         })()}
       </AdminModal>}

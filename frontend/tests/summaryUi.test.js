@@ -78,7 +78,7 @@ test('document statuses distinguish unprocessed, missing chunks, unavailable, an
     deleted: 1,
   }).join(' ')
   assert.match(messages, /chưa xử lý xong/i)
-  assert.match(messages, /chưa có đoạn nội dung/i)
+  assert.match(messages, /chưa có nội dung để tóm tắt/i)
   assert.match(messages, /lỗi kết nối hoặc hệ thống/i)
   assert.match(messages, /không còn tồn tại/i)
 })

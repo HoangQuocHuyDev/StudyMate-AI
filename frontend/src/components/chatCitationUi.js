@@ -56,7 +56,7 @@ export function CitationSourceButton({ citation, onSelect }) {
   )
 }
 
-export function CitationDetailPanel({ state, onClose }) {
+export function CitationDetailPanel({ state, onClose, panelRef, closeButtonRef }) {
   if (!state.open) return null
 
   const data = state.data
@@ -75,6 +75,8 @@ export function CitationDetailPanel({ state, onClose }) {
       'section',
       {
         className: 'chat-citation-panel',
+        ref: panelRef,
+        tabIndex: -1,
         role: 'dialog',
         'aria-modal': 'true',
         'aria-labelledby': 'chat-citation-title',
@@ -92,7 +94,7 @@ export function CitationDetailPanel({ state, onClose }) {
         ),
         createElement(
           'button',
-          { type: 'button', onClick: onClose, 'aria-label': 'Đóng nguồn trích dẫn' },
+          { ref: closeButtonRef, type: 'button', onClick: onClose, 'aria-label': 'Đóng nguồn trích dẫn' },
           '×',
         ),
       ),

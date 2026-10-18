@@ -9,6 +9,7 @@ import {
   createAdminUserStatusController,
   getAdminUserStatusAction,
   getAdminUsersAdjustedOffset,
+  getAdminRoleLabel,
   getAdminUsersErrorMessage,
   getAdminUsersPageInfo,
   initialAdminUsersState,
@@ -16,6 +17,11 @@ import {
   validateAdminUserListResponse,
   validateAdminUserResponse,
 } from '../src/components/admin/adminUsersUi.js'
+
+test('nhãn vai trò quản trị dùng tiếng Việt tự nhiên', () => {
+  assert.equal(getAdminRoleLabel('USER'), 'Người dùng')
+  assert.equal(getAdminRoleLabel('ADMIN'), 'Quản trị viên')
+})
 
 
 const account = {
@@ -229,4 +235,7 @@ test('AdminUsers source contains confirmation-only status mutation and no mock d
   assert.match(source, /maxLength=\{255\}/)
   assert.match(source, /setTimeout\(\(\) => \{/)
   assert.match(source, /\}, 350\)/)
+  assert.match(source, /event\.key !== 'Tab'/)
+  assert.match(source, /confirmationTriggerRef\.current = document\.activeElement/)
+  assert.match(source, /previouslyFocused\?\.isConnected/)
 })
