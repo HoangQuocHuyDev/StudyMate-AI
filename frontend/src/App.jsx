@@ -19,6 +19,7 @@ import {
 } from './navigation/routePolicy'
 import './App.css'
 import './ui-polish.css'
+import './user-product.css'
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
