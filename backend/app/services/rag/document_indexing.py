@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from math import ceil
-from time import perf_counter
-from typing import Protocol
+from random import uniform
+from time import perf_counter, sleep
+from typing import Callable, Protocol
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -40,6 +41,7 @@ RAG_READY = "READY"
 RAG_FAILED = "FAILED"
 DEFAULT_EMBEDDING_BATCH_SIZE = 32
 MAX_EMBEDDING_BATCH_SIZE = 100
+DEFAULT_INDEXING_LEASE_SECONDS = 900
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +78,29 @@ class DocumentIndexingFailedError(DocumentIndexingError):
 
 class DocumentIndexingInfrastructureError(DocumentIndexingError):
     """Raised when PostgreSQL state cannot be confirmed safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingRetryPolicy:
+    """Bounded, single-layer retry policy for Gemini rate limits."""
+
+    max_retries: int
+    base_delay_seconds: float
+    max_delay_seconds: float
+    max_total_wait_seconds: float
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_retries, bool) or not isinstance(self.max_retries, int) or not 0 <= self.max_retries <= 10:
+            raise ValueError("max_retries must be an integer between 0 and 10.")
+        for name, value, minimum, maximum in (
+            ("base_delay_seconds", self.base_delay_seconds, 0.1, 60.0),
+            ("max_delay_seconds", self.max_delay_seconds, 0.1, 300.0),
+            ("max_total_wait_seconds", self.max_total_wait_seconds, 0.1, 900.0),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not minimum <= float(value) <= maximum:
+                raise ValueError(f"{name} is outside the supported range.")
+        if self.max_delay_seconds < self.base_delay_seconds:
+            raise ValueError("max_delay_seconds must not be below base_delay_seconds.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +143,8 @@ class _IndexingFailureDetails:
     provider_http_status: int | None
     failure_phase: str | None
     exception_type: str | None
+    retry_attempt: int | None = None
+    retry_delay: float | None = None
 
 
 class _IndexingStageError(Exception):
@@ -189,13 +216,33 @@ def index_document(
     document_id: int,
     user_id: int,
     batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
+    batch_delay_seconds: float = 0.0,
+    retry_policy: EmbeddingRetryPolicy | None = None,
+    indexing_lease_seconds: int = DEFAULT_INDEXING_LEASE_SECONDS,
+    sleeper: Callable[[float], None] = sleep,
+    jitter: Callable[[float, float], float] = uniform,
 ) -> DocumentIndexingResult:
     """Claim and index one processed document without a distributed transaction."""
 
     _validate_identifier(document_id, "document_id")
     _validate_identifier(user_id, "user_id")
     _validate_batch_size(batch_size)
-    _claim_document(db, document_id=document_id, user_id=user_id)
+    _validate_batch_delay_seconds(batch_delay_seconds)
+    _validate_indexing_lease_seconds(indexing_lease_seconds)
+    if retry_policy is None:
+        retry_policy = EmbeddingRetryPolicy(5, 5.0, 60.0, 300.0)
+    resume_from_vectors = _should_resume_from_vectors(
+        db,
+        document_id=document_id,
+        user_id=user_id,
+        indexing_lease_seconds=indexing_lease_seconds,
+    )
+    _claim_document(
+        db,
+        document_id=document_id,
+        user_id=user_id,
+        indexing_lease_seconds=indexing_lease_seconds,
+    )
     chunks = _load_claimed_chunks(
         db,
         document_id=document_id,
@@ -208,21 +255,64 @@ def index_document(
         )
 
     expected_ids = {f"document_chunk:{chunk.id}" for chunk in chunks}
-    total_batches = ceil(len(chunks) / batch_size)
     indexing_started = perf_counter()
     try:
+        existing_ids = (
+            _get_existing_vector_ids(
+                vector_store,
+                user_id=user_id,
+                document_id=document_id,
+                total_batches=ceil(len(chunks) / batch_size),
+                chunk_count=len(chunks),
+            )
+            if resume_from_vectors
+            else set()
+        )
+        pending_chunks = tuple(
+            chunk
+            for chunk in chunks
+            if f"document_chunk:{chunk.id}" not in existing_ids
+        )
+        total_batches = ceil(len(pending_chunks) / batch_size)
+        total_chunks = len(chunks)
+        already_indexed = len(existing_ids)
+        current_indexed = already_indexed
+
+        if resume_from_vectors and already_indexed > 0:
+            logger.info(
+                "Resuming indexing for document_id=%d: %d/%d chunks already exist in vector store, %d chunks remaining across %d batches.",
+                document_id,
+                already_indexed,
+                total_chunks,
+                len(pending_chunks),
+                total_batches,
+            )
+
+        logger.info(
+            "Starting indexing for document_id=%d: total_chunks=%d, already_indexed=%d, pending_chunks=%d, batch_size=%d, batch_delay=%.2fs",
+            document_id,
+            total_chunks,
+            already_indexed,
+            len(pending_chunks),
+            batch_size,
+            batch_delay_seconds,
+        )
+
         for batch_offset, start in enumerate(
-            range(0, len(chunks), batch_size),
+            range(0, len(pending_chunks), batch_size),
             start=1,
         ):
-            batch = chunks[start : start + batch_size]
+            batch = pending_chunks[start : start + batch_size]
             embeddings = _embed_batch(
                 embedder,
                 batch,
                 document_id=document_id,
                 batch_index=batch_offset,
                 total_batches=total_batches,
-                chunk_count=len(chunks),
+                chunk_count=total_chunks,
+                retry_policy=retry_policy,
+                sleeper=sleeper,
+                jitter=jitter,
             )
             records = [
                 ChunkVectorRecord(
@@ -249,8 +339,20 @@ def index_document(
                 document_id=document_id,
                 batch_index=batch_offset,
                 total_batches=total_batches,
-                chunk_count=len(chunks),
+                chunk_count=total_chunks,
             )
+            current_indexed += len(batch)
+            logger.info(
+                "Indexed %d/%d chunks (Batch %d/%d) for document_id=%d",
+                current_indexed,
+                total_chunks,
+                batch_offset,
+                total_batches,
+                document_id,
+            )
+
+            if batch_offset < total_batches and batch_delay_seconds > 0:
+                sleeper(batch_delay_seconds)
 
         _verify_vectors(
             vector_store,
@@ -302,17 +404,32 @@ def index_document(
     )
 
 
-def _claim_document(db: Session, *, document_id: int, user_id: int) -> None:
+def _claim_document(
+    db: Session,
+    *,
+    document_id: int,
+    user_id: int,
+    indexing_lease_seconds: int,
+) -> None:
     chunks_exist = select(DocumentChunk.id).where(
         DocumentChunk.document_id == Document.id
     ).exists()
+    stale_before = datetime.now(timezone.utc) - timedelta(
+        seconds=indexing_lease_seconds
+    )
     statement = (
         update(Document)
         .where(
             Document.id == document_id,
             Document.user_id == user_id,
             Document.status == DOCUMENT_READY,
-            Document.rag_status.in_((RAG_PENDING, RAG_FAILED)),
+            or_(
+                Document.rag_status.in_((RAG_PENDING, RAG_FAILED)),
+                and_(
+                    Document.rag_status == RAG_INDEXING,
+                    Document.updated_at < stale_before,
+                ),
+            ),
             chunks_exist,
             document_not_being_deleted(Document.id),
         )
@@ -350,6 +467,44 @@ def _claim_document(db: Session, *, document_id: int, user_id: int) -> None:
         raise DocumentIndexingInfrastructureError(
             "Document indexing state could not be claimed."
         ) from None
+
+
+def _should_resume_from_vectors(
+    db: Session,
+    *,
+    document_id: int,
+    user_id: int,
+    indexing_lease_seconds: int,
+) -> bool:
+    """Avoid opening ChromaDB on a new run; resume only recoverable runs."""
+
+    stale_before = datetime.now(timezone.utc) - timedelta(
+        seconds=indexing_lease_seconds
+    )
+    try:
+        document = db.execute(
+            select(Document.rag_status, Document.updated_at).where(
+                Document.id == document_id,
+                Document.user_id == user_id,
+                document_not_being_deleted(Document.id),
+            )
+        ).one_or_none()
+        db.rollback()
+    except SQLAlchemyError:
+        _safe_rollback(db)
+        raise DocumentIndexingInfrastructureError(
+            "Document indexing state could not be loaded."
+        ) from None
+    if document is None:
+        return False
+    updated_at = document.updated_at
+    if updated_at is not None and updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return document.rag_status == RAG_FAILED or (
+        document.rag_status == RAG_INDEXING
+        and updated_at is not None
+        and updated_at < stale_before
+    )
 
 
 def _load_claimed_chunks(
@@ -470,6 +625,16 @@ def _validate_identifier(value: int, name: str) -> None:
         )
 
 
+def _validate_batch_delay_seconds(value: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value < 0
+        or value > 60.0
+    ):
+        raise ValueError("batch_delay_seconds must be a number between 0 and 60.")
+
+
 def _validate_batch_size(batch_size: int) -> None:
     if (
         isinstance(batch_size, bool)
@@ -482,6 +647,16 @@ def _validate_batch_size(batch_size: int) -> None:
         )
 
 
+def _validate_indexing_lease_seconds(lease_seconds: int) -> None:
+    if (
+        isinstance(lease_seconds, bool)
+        or not isinstance(lease_seconds, int)
+        or lease_seconds < 30
+        or lease_seconds > 86_400
+    ):
+        raise ValueError("indexing_lease_seconds must be between 30 and 86400.")
+
+
 def _embed_batch(
     embedder: EmbeddingProvider,
     batch: Sequence[_IndexableChunk],
@@ -490,41 +665,92 @@ def _embed_batch(
     batch_index: int,
     total_batches: int,
     chunk_count: int,
+    retry_policy: EmbeddingRetryPolicy,
+    sleeper: Callable[[float], None],
+    jitter: Callable[[float, float], float],
 ) -> list[list[float]]:
     started = perf_counter()
-    try:
-        embeddings = embedder.embed_documents([chunk.content for chunk in batch])
-    except Exception as exc:
-        (
-            error_code,
-            provider_http_status,
-            failure_phase,
-            exception_type,
-            provider_elapsed_ms,
-        ) = _classify_embedding_error(exc)
-        details = _failure_details(
-            stage="embedding_batch",
-            batch_index=batch_index,
-            total_batches=total_batches,
-            chunk_count=chunk_count,
-            error_code=error_code,
-            provider_http_status=provider_http_status,
-            failure_phase=failure_phase,
-            exception_type=exception_type,
-        )
-        _log_indexing_event(
-            logging.WARNING,
-            "document_indexing_stage_failed",
-            document_id=document_id,
-            details=details,
-            elapsed_ms=(
-                provider_elapsed_ms
-                if provider_elapsed_ms is not None
-                else _elapsed_ms(started)
-            ),
-            batch_chunk_count=len(batch),
-        )
-        raise _IndexingStageError(details) from None
+    attempt = 0
+    total_wait = 0.0
+    while True:
+        try:
+            embeddings = embedder.embed_documents(
+                [chunk.content for chunk in batch]
+            )
+            break
+        except Exception as exc:
+            (
+                error_code,
+                provider_http_status,
+                failure_phase,
+                exception_type,
+                provider_elapsed_ms,
+            ) = _classify_embedding_error(exc)
+            if error_code != "gemini_rate_limit" or attempt >= retry_policy.max_retries:
+                _raise_embedding_stage_error(
+                    exc,
+                    document_id=document_id,
+                    batch=batch,
+                    batch_index=batch_index,
+                    total_batches=total_batches,
+                    chunk_count=chunk_count,
+                    error_code=error_code,
+                    provider_http_status=provider_http_status,
+                    failure_phase=failure_phase,
+                    exception_type=exception_type,
+                    elapsed_ms=(
+                        provider_elapsed_ms
+                        if provider_elapsed_ms is not None
+                        else _elapsed_ms(started)
+                    ),
+                    retry_attempt=attempt,
+                )
+            retry_attempt = attempt + 1
+            delay = _retry_delay_seconds(
+                exc,
+                retry_attempt=retry_attempt,
+                policy=retry_policy,
+                total_wait=total_wait,
+                jitter=jitter,
+            )
+            if delay is None:
+                _raise_embedding_stage_error(
+                    exc,
+                    document_id=document_id,
+                    batch=batch,
+                    batch_index=batch_index,
+                    total_batches=total_batches,
+                    chunk_count=chunk_count,
+                    error_code=error_code,
+                    provider_http_status=provider_http_status,
+                    failure_phase=failure_phase,
+                    exception_type=exception_type,
+                    elapsed_ms=_elapsed_ms(started),
+                    retry_attempt=attempt,
+                )
+            details = _failure_details(
+                stage="embedding_retry",
+                batch_index=batch_index,
+                total_batches=total_batches,
+                chunk_count=chunk_count,
+                error_code=error_code,
+                provider_http_status=provider_http_status,
+                failure_phase=failure_phase,
+                exception_type=exception_type,
+                retry_attempt=retry_attempt,
+                retry_delay=delay,
+            )
+            _log_indexing_event(
+                logging.WARNING,
+                "document_indexing_embedding_retry",
+                document_id=document_id,
+                details=details,
+                elapsed_ms=_elapsed_ms(started),
+                batch_chunk_count=len(batch),
+            )
+            sleeper(delay)
+            total_wait += delay
+            attempt = retry_attempt
     if not isinstance(embeddings, list) or len(embeddings) != len(batch):
         details = _failure_details(
             stage="embedding_batch",
@@ -557,6 +783,72 @@ def _embed_batch(
         batch_chunk_count=len(batch),
     )
     return embeddings
+
+
+def _raise_embedding_stage_error(
+    error: Exception,
+    *,
+    document_id: int,
+    batch: Sequence[_IndexableChunk],
+    batch_index: int,
+    total_batches: int,
+    chunk_count: int,
+    error_code: str,
+    provider_http_status: int | None,
+    failure_phase: str | None,
+    exception_type: str | None,
+    elapsed_ms: float,
+    retry_attempt: int,
+) -> None:
+    details = _failure_details(
+        stage="embedding_batch",
+        batch_index=batch_index,
+        total_batches=total_batches,
+        chunk_count=chunk_count,
+        error_code=error_code,
+        provider_http_status=provider_http_status,
+        failure_phase=failure_phase,
+        exception_type=exception_type,
+        retry_attempt=retry_attempt,
+    )
+    _log_indexing_event(
+        logging.WARNING,
+        "document_indexing_stage_failed",
+        document_id=document_id,
+        details=details,
+        elapsed_ms=elapsed_ms,
+        batch_chunk_count=len(batch),
+    )
+    raise _IndexingStageError(details) from error
+
+
+def _retry_delay_seconds(
+    error: Exception,
+    *,
+    retry_attempt: int,
+    policy: EmbeddingRetryPolicy,
+    total_wait: float,
+    jitter: Callable[[float, float], float],
+) -> float | None:
+    provider_delay = (
+        error.retry_after_seconds
+        if isinstance(error, GeminiEmbeddingError)
+        else None
+    )
+    if provider_delay is not None and provider_delay > 0:
+        delay = float(provider_delay)
+    else:
+        nominal_delay = min(
+            policy.max_delay_seconds,
+            policy.base_delay_seconds * (2 ** (retry_attempt - 1)),
+        )
+        delay = min(
+            policy.max_delay_seconds,
+            nominal_delay + jitter(0.0, min(1.0, nominal_delay * 0.1)),
+        )
+    if delay < 0 or total_wait + delay > policy.max_total_wait_seconds:
+        return None
+    return delay
 
 
 def _upsert_batch(
@@ -620,6 +912,40 @@ def _upsert_batch(
         batch_chunk_count=len(records),
     )
     return persisted_count
+
+
+def _get_existing_vector_ids(
+    vector_store: DocumentVectorStore,
+    *,
+    user_id: int,
+    document_id: int,
+    total_batches: int,
+    chunk_count: int,
+) -> set[str]:
+    """Read completed vector IDs before resuming an interrupted run."""
+
+    started = perf_counter()
+    try:
+        return vector_store.get_document_vector_ids(
+            user_id=user_id,
+            document_id=document_id,
+        )
+    except Exception as exc:
+        details = _failure_details(
+            stage="resume_vector_lookup",
+            batch_index=None,
+            total_batches=total_batches,
+            chunk_count=chunk_count,
+            error_code=_classify_chroma_error(exc, "chroma_resume_lookup_failed"),
+        )
+        _log_indexing_event(
+            logging.WARNING,
+            "document_indexing_stage_failed",
+            document_id=document_id,
+            details=details,
+            elapsed_ms=_elapsed_ms(started),
+        )
+        raise _IndexingStageError(details) from None
 
 
 def _verify_vectors(
@@ -716,6 +1042,8 @@ def _failure_details(
     provider_http_status: int | None = None,
     failure_phase: str | None = None,
     exception_type: str | None = None,
+    retry_attempt: int | None = None,
+    retry_delay: float | None = None,
 ) -> _IndexingFailureDetails:
     return _IndexingFailureDetails(
         stage=stage,
@@ -726,6 +1054,8 @@ def _failure_details(
         provider_http_status=provider_http_status,
         failure_phase=failure_phase,
         exception_type=exception_type,
+        retry_attempt=retry_attempt,
+        retry_delay=retry_delay,
     )
 
 
@@ -752,6 +1082,8 @@ def _log_indexing_event(
         "failure_phase": details.failure_phase,
         "exception_type": details.exception_type,
         "provider_http_status": details.provider_http_status,
+        "retry_attempt": details.retry_attempt,
+        "retry_delay": details.retry_delay,
         "elapsed_ms": elapsed_ms,
     }
     logger.log(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from datetime import datetime
 
 from sqlalchemy import func, select, update
@@ -33,6 +34,7 @@ UPLOADED = "UPLOADED"
 PROCESSING = "PROCESSING"
 READY = "READY"
 FAILED = "FAILED"
+logger = logging.getLogger(__name__)
 
 
 class DocumentProcessingError(Exception):
@@ -202,7 +204,14 @@ def _process_claimed_document(
         )
         chunks = chunk_extracted_text(extracted)
         _validate_processing_output(extracted, chunks)
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "Document processing failed for document_id=%d, storage_key=%s, file_type=%s: %s",
+            claimed.document_id,
+            claimed.storage_key,
+            claimed.file_type,
+            exc,
+        )
         _mark_failed(db, document_id=claimed.document_id, user_id=user_id)
         raise DocumentProcessingFailedError(
             "Document content could not be processed."
@@ -380,7 +389,12 @@ def _persist_chunks_and_mark_ready(
         db.commit()
     except DocumentProcessingInfrastructureError:
         raise
-    except (DocumentChunkRepositoryError, SQLAlchemyError):
+    except (DocumentChunkRepositoryError, SQLAlchemyError) as exc:
+        logger.exception(
+            "Failed to save document chunks / mark ready for document_id=%d: %s",
+            document_id,
+            exc,
+        )
         _safe_rollback(db)
         raise DocumentProcessingInfrastructureError(
             "Document chunks and completion state could not be saved."

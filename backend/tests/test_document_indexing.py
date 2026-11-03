@@ -38,6 +38,7 @@ from app.services.rag.document_indexing import (
     DocumentIndexingFailedError,
     DocumentIndexingNotFoundError,
     DocumentNotIndexableError,
+    EmbeddingRetryPolicy,
     index_document,
 )
 from app.services.rag.embedding_service import (
@@ -116,6 +117,19 @@ class FakeEmbedder:
 
     def embed_query(self, query: str) -> list[float]:
         raise AssertionError("Document indexing must not embed a query.")
+
+
+class ScriptedEmbedder(FakeEmbedder):
+    def __init__(self, outcomes: list[Exception | None]) -> None:
+        super().__init__()
+        self.outcomes = outcomes
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        outcome = self.outcomes.pop(0) if self.outcomes else None
+        if outcome is not None:
+            raise outcome
+        return [[float(index)] * DIMENSIONS for index, _ in enumerate(texts)]
 
 
 class FakeVectorStore:
@@ -700,6 +714,7 @@ def test_embedding_failures_are_logged_with_safe_categories(
                 FakeVectorStore(),
                 document_id=1,
                 user_id=7,
+                sleeper=lambda _: None,
             )
 
     failure = next(

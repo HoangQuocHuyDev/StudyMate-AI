@@ -74,14 +74,29 @@ class ChromaVectorStore:
         *,
         client: Any | None = None,
         create_if_missing: bool = True,
+        dimensions: int | None = None,
+        collection_name: str | None = None,
+        auto_recreate_on_mismatch: bool = False,
     ) -> None:
-        if settings.gemini_embedding_dimensions <= 0:
+        dim = (
+            dimensions
+            if dimensions is not None
+            else settings.gemini_embedding_dimensions
+        )
+        coll_name = (
+            collection_name
+            if collection_name is not None
+            else settings.chroma_collection_name
+        )
+        if dim <= 0:
             raise ValueError("Embedding dimensions must be positive.")
         if not isinstance(create_if_missing, bool):
             raise ValueError("create_if_missing must be a boolean.")
 
-        self._dimensions = settings.gemini_embedding_dimensions
-        self._collection_name = settings.chroma_collection_name
+        self._dimensions = dim
+        self._collection_name = coll_name
+        self._create_if_missing = create_if_missing
+        self._auto_recreate_on_mismatch = auto_recreate_on_mismatch
         try:
             self._client = (
                 client
@@ -303,6 +318,24 @@ class ChromaVectorStore:
             or metric != DISTANCE_METRIC
             or embedding_function is not None
         ):
+            if self._auto_recreate_on_mismatch and self._create_if_missing:
+                try:
+                    self._client.delete_collection(name=self._collection_name)
+                    self._collection = self._client.create_collection(
+                        name=self._collection_name,
+                        configuration={"hnsw": {"space": DISTANCE_METRIC}},
+                        metadata={
+                            "embedding_dimensions": self._dimensions,
+                            "distance_metric": DISTANCE_METRIC,
+                            "schema_version": COLLECTION_SCHEMA_VERSION,
+                        },
+                        embedding_function=None,
+                    )
+                    return
+                except Exception as exc:
+                    raise ChromaOpenError(
+                        "The incompatible ChromaDB collection could not be recreated."
+                    ) from exc
             raise IncompatibleChromaCollectionError(
                 "The existing ChromaDB collection is incompatible."
             )
@@ -318,14 +351,19 @@ class ChromaVectorStore:
         if not isinstance(record.metadata, Mapping):
             raise InvalidVectorRecordError("Chunk metadata is invalid.")
 
-        keys = set(record.metadata)
+        # Strip None values so ChromaDB never receives None in metadata
+        metadata = {
+            key: value
+            for key, value in record.metadata.items()
+            if value is not None
+        }
+        keys = set(metadata)
         if not _REQUIRED_METADATA_KEYS.issubset(keys) or not keys.issubset(
             _ALLOWED_METADATA_KEYS
         ):
             raise InvalidVectorRecordError(
                 "Chunk metadata contains missing or unsupported fields."
             )
-        metadata = dict(record.metadata)
         self._validate_positive_identifier(metadata["user_id"], "user_id")
         self._validate_positive_identifier(
             metadata["document_id"],

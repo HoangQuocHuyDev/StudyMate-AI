@@ -28,9 +28,16 @@ from app.services.rag.document_retrieval import (
     RetrievedDocumentChunk,
     retrieve_document_chunks,
 )
-from app.services.rag.document_indexing import DocumentVectorStore
+from app.services.rag.document_indexing import (
+    DocumentVectorStore,
+    EmbeddingRetryPolicy,
+)
+import threading
+
 from app.services.rag.embedding_service import (
+    DEFAULT_FASTEMBED_MODEL,
     EmbeddingProvider,
+    FastEmbedProvider,
     GeminiEmbeddingService,
 )
 from app.services.summary.concurrency import (
@@ -48,6 +55,10 @@ class RagIndexingResources:
     vector_store: DocumentVectorStore
     concurrency_limits: SummaryConcurrencyLimits = SummaryConcurrencyLimits()
     concurrency_coordinator: CapacityConcurrencyCoordinator | None = None
+    embedding_batch_size: int = 16
+    batch_delay_seconds: float = 1.5
+    retry_policy: EmbeddingRetryPolicy = EmbeddingRetryPolicy(5, 5.0, 60.0, 300.0)
+    indexing_lease_seconds: int = 900
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +111,26 @@ class _LazyGeminiEmbeddingProvider:
         return self._service
 
 
+_fastembed_singleton: FastEmbedProvider | None = None
+_fastembed_lock = threading.Lock()
+
+
+def get_fastembed_provider(
+    model_name: str = DEFAULT_FASTEMBED_MODEL,
+    cache_dir: str | None = None,
+) -> FastEmbedProvider:
+    """Return a thread-safe cached FastEmbedProvider singleton."""
+    global _fastembed_singleton
+    if _fastembed_singleton is None or _fastembed_singleton._model_name != model_name:
+        with _fastembed_lock:
+            if _fastembed_singleton is None or _fastembed_singleton._model_name != model_name:
+                _fastembed_singleton = FastEmbedProvider(
+                    model_name=model_name,
+                    cache_dir=cache_dir,
+                )
+    return _fastembed_singleton
+
+
 class _LazyChromaVectorStore:
     """Delay opening ChromaDB until a claimed document has vectors to persist."""
 
@@ -108,9 +139,15 @@ class _LazyChromaVectorStore:
         settings: Settings,
         *,
         create_if_missing: bool = True,
+        dimensions: int | None = None,
+        collection_name: str | None = None,
+        auto_recreate_on_mismatch: bool = False,
     ) -> None:
         self._settings = settings
         self._create_if_missing = create_if_missing
+        self._dimensions = dimensions
+        self._collection_name = collection_name
+        self._auto_recreate_on_mismatch = auto_recreate_on_mismatch
         self._store: ChromaVectorStore | None = None
 
     def upsert_chunks(self, records: Sequence[ChunkVectorRecord]) -> int:
@@ -156,12 +193,34 @@ class _LazyChromaVectorStore:
     def close(self) -> None:
         if self._store is not None:
             self._store.close()
+            self._store = None
 
     def _get_store(self) -> ChromaVectorStore:
         if self._store is None:
+            dimensions = (
+                self._dimensions
+                if self._dimensions is not None
+                else (
+                    self._settings.fastembed_dimensions
+                    if getattr(self._settings, "embedding_provider", "fastembed") == "fastembed"
+                    else self._settings.gemini_embedding_dimensions
+                )
+            )
+            collection_name = (
+                self._collection_name
+                if self._collection_name is not None
+                else (
+                    self._settings.fastembed_collection_name
+                    if getattr(self._settings, "embedding_provider", "fastembed") == "fastembed"
+                    else self._settings.chroma_collection_name
+                )
+            )
             self._store = ChromaVectorStore(
                 self._settings,
                 create_if_missing=self._create_if_missing,
+                dimensions=dimensions,
+                collection_name=collection_name,
+                auto_recreate_on_mismatch=self._auto_recreate_on_mismatch,
             )
         return self._store
 
@@ -243,8 +302,45 @@ def get_rag_indexing_resources(
             detail="Dịch vụ lập chỉ mục RAG chưa được cấu hình.",
         )
 
-    embedder = _LazyGeminiEmbeddingProvider(settings)
-    vector_store = _LazyChromaVectorStore(settings)
+    is_local = getattr(settings, "embedding_provider", "fastembed") == "fastembed" 
+
+    if is_local:
+        embedder: EmbeddingProvider = get_fastembed_provider(
+            model_name=settings.fastembed_model
+        )
+        vector_store = _LazyChromaVectorStore(
+            settings,
+            create_if_missing=True,
+            dimensions=settings.fastembed_dimensions,
+            collection_name=settings.fastembed_collection_name,
+            auto_recreate_on_mismatch=True,
+        )
+        batch_delay = 0.0
+        retry_policy = EmbeddingRetryPolicy(
+            max_retries=0,
+            base_delay_seconds=0.1,
+            max_delay_seconds=0.1,
+            max_total_wait_seconds=0.1,
+        )
+        batch_size = 32
+    else:
+        embedder = _LazyGeminiEmbeddingProvider(settings)
+        vector_store = _LazyChromaVectorStore(
+            settings,
+            create_if_missing=True,
+            dimensions=settings.gemini_embedding_dimensions,
+            collection_name=settings.chroma_collection_name,
+            auto_recreate_on_mismatch=False,
+        )
+        batch_delay = settings.gemini_embedding_batch_delay_seconds
+        retry_policy = EmbeddingRetryPolicy(
+            max_retries=settings.gemini_embedding_max_retries,
+            base_delay_seconds=settings.gemini_embedding_retry_base_seconds,
+            max_delay_seconds=settings.gemini_embedding_retry_max_seconds,
+            max_total_wait_seconds=settings.gemini_embedding_retry_max_wait_seconds,
+        )
+        batch_size = settings.gemini_embedding_batch_size
+
     concurrency_limits = SummaryConcurrencyLimits(
         global_limit=settings.indexing_global_concurrency,
         per_user_limit=settings.indexing_user_concurrency,
@@ -260,6 +356,10 @@ def get_rag_indexing_resources(
                 namespace="document_indexing",
                 limits=concurrency_limits,
             ),
+            embedding_batch_size=batch_size,
+            batch_delay_seconds=batch_delay,
+            retry_policy=retry_policy,
+            indexing_lease_seconds=settings.document_indexing_lease_seconds,
         )
     finally:
         _close_safely(vector_store)
@@ -277,11 +377,27 @@ def get_rag_chat_resources(
             detail="Dịch vụ hỏi đáp AI chưa được cấu hình.",
         )
 
-    embedder = _LazyGeminiEmbeddingProvider(settings)
-    vector_store = _LazyChromaVectorStore(
-        settings,
-        create_if_missing=False,
-    )
+    is_local = getattr(settings, "embedding_provider", "fastembed") == "fastembed"
+    if is_local:
+        embedder: EmbeddingProvider = get_fastembed_provider(
+            model_name=settings.fastembed_model
+        )
+        vector_store = _LazyChromaVectorStore(
+            settings,
+            create_if_missing=False,
+            dimensions=settings.fastembed_dimensions,
+            collection_name=settings.fastembed_collection_name,
+            auto_recreate_on_mismatch=True,
+        )
+    else:
+        embedder = _LazyGeminiEmbeddingProvider(settings)
+        vector_store = _LazyChromaVectorStore(
+            settings,
+            create_if_missing=False,
+            dimensions=settings.gemini_embedding_dimensions,
+            collection_name=settings.chroma_collection_name,
+            auto_recreate_on_mismatch=False,
+        )
     answer_provider = _LazyGeminiAnswerProvider(settings)
     try:
         yield RagChatResources(

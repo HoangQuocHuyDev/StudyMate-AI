@@ -35,8 +35,24 @@ DEFAULT_CHROMA_PERSIST_DIRECTORY = BACKEND_DIR / "storage" / "chroma"
 DEFAULT_CHROMA_COLLECTION_NAME = (
     "studymate_document_chunks_gemini2_768_v1"
 )
+DEFAULT_EMBEDDING_PROVIDER = "fastembed"
+DEFAULT_FASTEMBED_MODEL = (
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+)
+DEFAULT_FASTEMBED_DIMENSIONS = 384
+DEFAULT_FASTEMBED_BATCH_SIZE = 32
+DEFAULT_FASTEMBED_COLLECTION_NAME = (
+    "studymate_document_chunks_fastembed_384_v1"
+)
 DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"
 DEFAULT_GEMINI_EMBEDDING_DIMENSIONS = 768
+DEFAULT_GEMINI_EMBEDDING_BATCH_SIZE = 16
+DEFAULT_GEMINI_EMBEDDING_BATCH_DELAY_SECONDS = 1.5
+DEFAULT_GEMINI_EMBEDDING_MAX_RETRIES = 5
+DEFAULT_GEMINI_EMBEDDING_RETRY_BASE_SECONDS = 5.0
+DEFAULT_GEMINI_EMBEDDING_RETRY_MAX_SECONDS = 60.0
+DEFAULT_GEMINI_EMBEDDING_RETRY_MAX_WAIT_SECONDS = 300.0
+DEFAULT_DOCUMENT_INDEXING_LEASE_SECONDS = 900
 DEFAULT_GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_GEMINI_CHAT_TIMEOUT_SECONDS = 30
 DEFAULT_RAG_MAX_CONTEXT_CHARS = 12_000
@@ -72,9 +88,20 @@ class Settings:
     gemini_api_key: str | None = field(repr=False)
     gemini_embedding_model: str
     gemini_embedding_dimensions: int
+    gemini_embedding_batch_size: int
+    gemini_embedding_batch_delay_seconds: float
+    gemini_embedding_max_retries: int
+    gemini_embedding_retry_base_seconds: float
+    gemini_embedding_retry_max_seconds: float
+    gemini_embedding_retry_max_wait_seconds: float
+    document_indexing_lease_seconds: int
     gemini_chat_model: str
     gemini_chat_timeout_seconds: int
     rag_max_context_chars: int
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER
+    fastembed_model: str = DEFAULT_FASTEMBED_MODEL
+    fastembed_dimensions: int = DEFAULT_FASTEMBED_DIMENSIONS
+    fastembed_collection_name: str = DEFAULT_FASTEMBED_COLLECTION_NAME
     rag_max_cosine_distance: float | None = None
     summary_global_concurrency: int = DEFAULT_SUMMARY_GLOBAL_CONCURRENCY
     summary_user_concurrency: int = DEFAULT_SUMMARY_USER_CONCURRENCY
@@ -255,6 +282,37 @@ def _load_gemini_embedding_model() -> str:
     return model_name
 
 
+def _load_embedding_provider() -> str:
+    raw_provider = os.getenv("EMBEDDING_PROVIDER", DEFAULT_EMBEDDING_PROVIDER)
+    provider = raw_provider.strip().lower()
+    if provider not in ("fastembed", "gemini"):
+        raise RuntimeError("EMBEDDING_PROVIDER must be 'fastembed' or 'gemini'.")
+    return provider
+
+
+def _load_fastembed_model() -> str:
+    model = os.getenv("FASTEMBED_MODEL", DEFAULT_FASTEMBED_MODEL).strip()
+    if not model:
+        raise RuntimeError("FASTEMBED_MODEL must not be empty.")
+    return model
+
+
+def _load_fastembed_dimensions() -> int:
+    raw_value = os.getenv(
+        "FASTEMBED_DIMENSIONS",
+        str(DEFAULT_FASTEMBED_DIMENSIONS),
+    )
+    try:
+        dimensions = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(
+            "FASTEMBED_DIMENSIONS must be an integer."
+        ) from exc
+    if dimensions <= 0:
+        raise RuntimeError("FASTEMBED_DIMENSIONS must be greater than zero.")
+    return dimensions
+
+
 def _load_gemini_embedding_dimensions() -> int:
     raw_value = os.getenv(
         "GEMINI_EMBEDDING_DIMENSIONS",
@@ -271,6 +329,44 @@ def _load_gemini_embedding_dimensions() -> int:
             "GEMINI_EMBEDDING_DIMENSIONS must be greater than zero."
         )
     return dimensions
+
+
+def _load_bounded_int(
+    environment_name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw_value = os.getenv(environment_name, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{environment_name} must be an integer.") from exc
+    if value < minimum or value > maximum:
+        raise RuntimeError(
+            f"{environment_name} must be between {minimum} and {maximum}."
+        )
+    return value
+
+
+def _load_bounded_float(
+    environment_name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    raw_value = os.getenv(environment_name, str(default))
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{environment_name} must be a number.") from exc
+    if not isfinite(value) or value < minimum or value > maximum:
+        raise RuntimeError(
+            f"{environment_name} must be between {minimum} and {maximum}."
+        )
+    return value
 
 
 def _load_gemini_chat_model() -> str:
@@ -484,6 +580,52 @@ def get_settings() -> Settings:
         gemini_api_key=_load_gemini_api_key(),
         gemini_embedding_model=_load_gemini_embedding_model(),
         gemini_embedding_dimensions=_load_gemini_embedding_dimensions(),
+        embedding_provider=_load_embedding_provider(),
+        fastembed_model=_load_fastembed_model(),
+        fastembed_dimensions=_load_fastembed_dimensions(),
+        fastembed_collection_name=DEFAULT_FASTEMBED_COLLECTION_NAME,
+        gemini_embedding_batch_size=_load_bounded_int(
+            "GEMINI_EMBEDDING_BATCH_SIZE",
+            DEFAULT_GEMINI_EMBEDDING_BATCH_SIZE,
+            minimum=1,
+            maximum=100,
+        ),
+        gemini_embedding_batch_delay_seconds=_load_bounded_float(
+            "GEMINI_EMBEDDING_BATCH_DELAY_SECONDS",
+            DEFAULT_GEMINI_EMBEDDING_BATCH_DELAY_SECONDS,
+            minimum=0.0,
+            maximum=10.0,
+        ),
+        gemini_embedding_max_retries=_load_bounded_int(
+            "GEMINI_EMBEDDING_MAX_RETRIES",
+            DEFAULT_GEMINI_EMBEDDING_MAX_RETRIES,
+            minimum=0,
+            maximum=10,
+        ),
+        gemini_embedding_retry_base_seconds=_load_bounded_float(
+            "GEMINI_EMBEDDING_RETRY_BASE_SECONDS",
+            DEFAULT_GEMINI_EMBEDDING_RETRY_BASE_SECONDS,
+            minimum=0.1,
+            maximum=60.0,
+        ),
+        gemini_embedding_retry_max_seconds=_load_bounded_float(
+            "GEMINI_EMBEDDING_RETRY_MAX_SECONDS",
+            DEFAULT_GEMINI_EMBEDDING_RETRY_MAX_SECONDS,
+            minimum=0.1,
+            maximum=300.0,
+        ),
+        gemini_embedding_retry_max_wait_seconds=_load_bounded_float(
+            "GEMINI_EMBEDDING_RETRY_MAX_WAIT_SECONDS",
+            DEFAULT_GEMINI_EMBEDDING_RETRY_MAX_WAIT_SECONDS,
+            minimum=0.1,
+            maximum=900.0,
+        ),
+        document_indexing_lease_seconds=_load_bounded_int(
+            "DOCUMENT_INDEXING_LEASE_SECONDS",
+            DEFAULT_DOCUMENT_INDEXING_LEASE_SECONDS,
+            minimum=30,
+            maximum=86_400,
+        ),
         gemini_chat_model=_load_gemini_chat_model(),
         gemini_chat_timeout_seconds=_load_gemini_chat_timeout_seconds(),
         rag_max_context_chars=_load_rag_max_context_chars(),

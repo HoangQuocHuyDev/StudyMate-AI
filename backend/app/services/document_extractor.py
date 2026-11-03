@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import stat
@@ -23,11 +24,12 @@ from app.services.file_storage import FileStorage, FileStorageError
 
 DEFAULT_MAX_CHARACTERS = 2_000_000
 DEFAULT_MAX_PDF_PAGES = 500
-DEFAULT_MAX_DOCX_BLOCKS = 10_000
+DEFAULT_MAX_DOCX_BLOCKS = 50_000
 MAX_DOCX_ENTRIES = 1_000
 MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 100
 SUPPORTED_FILE_TYPES = frozenset({"PDF", "DOCX"})
+logger = logging.getLogger(__name__)
 
 
 class DocumentExtractionError(Exception):
@@ -262,25 +264,50 @@ def _extract_docx(
 
 
 def _iter_docx_fragments(container: object, budget: _StructureBudget) -> Iterator[str]:
-    for block in container.iter_inner_content():  # type: ignore[attr-defined]
-        budget.consume()
-        if isinstance(block, Paragraph):
-            if block.text:
-                yield block.text
-            continue
-        if not isinstance(block, Table):
-            continue
+    inner_fn = getattr(container, "iter_inner_content", None)
+    blocks = None
+    if callable(inner_fn):
+        try:
+            blocks = list(inner_fn())
+        except Exception as exc:
+            logger.warning("iter_inner_content failed on container, falling back: %s", exc)
+            blocks = None
 
-        for row in block.rows:
+    if blocks is None:
+        paragraphs = list(getattr(container, "paragraphs", []))
+        tables = list(getattr(container, "tables", []))
+        blocks = paragraphs + tables
+
+    for block in blocks:
+        try:
             budget.consume()
-            cell_values: list[str] = []
-            for cell in row.cells:
-                budget.consume()
-                cell_text = "\n".join(_iter_docx_fragments(cell, budget)).strip()
-                cell_values.append(cell_text)
-            row_text = " | ".join(cell_values).strip()
-            if row_text:
-                yield row_text
+            if isinstance(block, Paragraph):
+                text = block.text.strip() if block.text else ""
+                if text:
+                    yield text
+                continue
+            if isinstance(block, Table):
+                for row in block.rows:
+                    budget.consume()
+                    cell_values: list[str] = []
+                    seen_cells: set[object] = set()
+                    for cell in row.cells:
+                        tc = getattr(cell, "_tc", cell)
+                        if tc in seen_cells:
+                            continue
+                        seen_cells.add(tc)
+                        budget.consume()
+                        cell_text = "\n".join(_iter_docx_fragments(cell, budget)).strip()
+                        if cell_text:
+                            cell_values.append(cell_text)
+                    row_text = " | ".join(cell_values).strip()
+                    if row_text:
+                        yield row_text
+        except DocumentExtractionError:
+            raise
+        except Exception as exc:
+            logger.warning("Skipping unreadable docx block (%s): %s", type(block).__name__, exc)
+            continue
 
 
 def _validate_docx_archive(stream: BinaryIO) -> None:

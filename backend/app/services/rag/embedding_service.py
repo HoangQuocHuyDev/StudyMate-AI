@@ -16,6 +16,9 @@ from google.genai import types
 from app.core.config import Settings
 
 
+DEFAULT_FASTEMBED_MODEL = (
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+)
 DEFAULT_REQUEST_TIMEOUT_MILLISECONDS = 30_000
 DOCUMENT_TEMPLATE = "title: none | text: {text}"
 QUERY_TEMPLATE = "task: question answering | query: {query}"
@@ -55,6 +58,7 @@ class GeminiEmbeddingError(Exception):
         provider_http_status: int | None = None,
         exception_type: str | None = None,
         elapsed_ms: float | None = None,
+        retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.error_code = error_code or self.default_error_code
@@ -66,6 +70,7 @@ class GeminiEmbeddingError(Exception):
             else self.default_exception_type
         )
         self.elapsed_ms = elapsed_ms
+        self.retry_after_seconds = retry_after_seconds
 
 
 class GeminiEmbeddingConfigurationError(GeminiEmbeddingError):
@@ -94,6 +99,108 @@ class InvalidEmbeddingResponseError(GeminiEmbeddingError):
     default_error_code = "gemini_invalid_response"
     default_failure_phase = "response_validation"
     default_exception_type = "InvalidEmbeddingResponseError"
+
+
+class FastEmbedProvider:
+    """Generate fixed-size text embeddings locally using fastembed ONNX runtime."""
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_FASTEMBED_MODEL,
+        *,
+        cache_dir: str | None = None,
+        threads: int | None = None,
+        embedding_model: Any | None = None,
+    ) -> None:
+        self._model_name = model_name
+        self._cache_dir = cache_dir
+        self._threads = threads
+        self._model = embedding_model
+
+    def _get_model(self) -> Any:
+        if self._model is None:
+            from fastembed import TextEmbedding
+
+            self._model = TextEmbedding(
+                model_name=self._model_name,
+                cache_dir=self._cache_dir,
+                threads=self._threads,
+            )
+        return self._model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed document chunks while preserving input order."""
+        started = perf_counter()
+        if not isinstance(texts, list) or not texts:
+            raise InvalidEmbeddingInputError(
+                "At least one document text is required.",
+                elapsed_ms=_elapsed_ms(started),
+            )
+        for text in texts:
+            if not isinstance(text, str) or not text.strip():
+                raise InvalidEmbeddingInputError(
+                    "Document text must not be empty.",
+                    elapsed_ms=_elapsed_ms(started),
+                )
+        try:
+            model = self._get_model()
+            embeddings_iter = model.embed(texts)
+            return [
+                vector.tolist() if hasattr(vector, "tolist") else [float(x) for x in vector]
+                for vector in embeddings_iter
+            ]
+        except InvalidEmbeddingInputError:
+            raise
+        except Exception as exc:
+            raise GeminiEmbeddingRequestError(
+                f"FastEmbed document embedding failed: {exc}",
+                error_code="fastembed_execution_failed",
+                failure_phase="local_model_execution",
+                elapsed_ms=_elapsed_ms(started),
+            ) from exc
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Alias for embed_documents."""
+        return self.embed_documents(texts)
+
+    def embed_query(
+        self,
+        query: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> list[float]:
+        """Embed one user retrieval query."""
+        started = perf_counter()
+        if not isinstance(query, str) or not query.strip():
+            raise InvalidEmbeddingInputError(
+                "Query must not be empty.",
+                elapsed_ms=_elapsed_ms(started),
+            )
+        try:
+            model = self._get_model()
+            if hasattr(model, "query_embed"):
+                embeddings_iter = model.query_embed(query)
+            else:
+                embeddings_iter = model.embed([query])
+            raw_vector = next(iter(embeddings_iter))
+            return (
+                raw_vector.tolist()
+                if hasattr(raw_vector, "tolist")
+                else [float(x) for x in raw_vector]
+            )
+        except InvalidEmbeddingInputError:
+            raise
+        except Exception as exc:
+            raise GeminiEmbeddingRequestError(
+                f"FastEmbed query embedding failed: {exc}",
+                error_code="fastembed_execution_failed",
+                failure_phase="local_model_execution",
+                elapsed_ms=_elapsed_ms(started),
+            ) from exc
+
+    def close(self) -> None:
+        """Release local model reference."""
+        self._model = None
 
 
 class GeminiEmbeddingService:
@@ -240,6 +347,7 @@ class GeminiEmbeddingService:
                 provider_http_status=provider_http_status,
                 exception_type=exception_type,
                 elapsed_ms=_elapsed_ms(request_started),
+                retry_after_seconds=_retry_after_seconds(exc),
             ) from None
 
         validation_started = perf_counter()
@@ -368,6 +476,11 @@ def _classify_request_error(
             provider_http_status,
             exception_type,
         )
+    searchable = f"{type(error).__name__} {error}".lower()
+    if any(marker in searchable for marker in ("rate limit", "resource_exhausted", "quota")):
+        return "gemini_rate_limit", (provider_http_status or 429), exception_type
+    if "timeout" in searchable:
+        return "gemini_timeout", (provider_http_status or 504), exception_type
     return "gemini_request_failed", provider_http_status, exception_type
 
 
@@ -398,11 +511,11 @@ def _safe_exception_type(error: Exception) -> str | None:
 
 
 def _safe_provider_http_status(error: Exception) -> int | None:
-    """Read only the verified google-genai APIError.code field."""
+    """Read only the verified google-genai APIError.code field or HTTP status code."""
 
-    if not isinstance(error, genai_errors.APIError):
-        return None
-    code = error.code
+    code = getattr(error, "code", None)
+    if code is None:
+        code = getattr(error, "status_code", None)
     if (
         isinstance(code, bool)
         or not isinstance(code, int)
@@ -410,6 +523,28 @@ def _safe_provider_http_status(error: Exception) -> int | None:
     ):
         return None
     return code
+
+
+def _retry_after_seconds(error: Exception) -> float | None:
+    """Read a provider retry hint without exposing or parsing response text."""
+
+    for attr in ("retry_after", "retry_delay"):
+        val = getattr(error, attr, None)
+        if isinstance(val, (int, float)) and 0 < val <= 900:
+            return float(val)
+
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    if hasattr(headers, "get"):
+        raw_value = headers.get("Retry-After") or headers.get("retry-after")
+        if isinstance(raw_value, str):
+            try:
+                delay = float(raw_value.strip())
+                if isfinite(delay) and 0 < delay <= 900:
+                    return delay
+            except ValueError:
+                pass
+    return None
 
 
 def _elapsed_ms(started: float) -> float:

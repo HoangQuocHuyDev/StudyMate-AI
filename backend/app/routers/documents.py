@@ -1,5 +1,6 @@
 """Authenticated document routes."""
 
+import logging
 from typing import Annotated
 import unicodedata
 from urllib.parse import quote
@@ -89,6 +90,8 @@ from app.services.summary.concurrency import (
     get_capacity_concurrency_coordinator,
 )
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Tài liệu"])
 
@@ -494,6 +497,12 @@ def process_owned_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Không thể hoàn tất xử lý tài liệu lúc này.",
         ) from None
+    except Exception as exc:
+        logger.exception("Unexpected error while processing document_id=%d: %s", document_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể hoàn tất xử lý tài liệu lúc này.",
+        ) from None
 
     return _processing_status_response(
         db,
@@ -552,6 +561,10 @@ def index_owned_document(
                 resources.vector_store,
                 document_id=document_id,
                 user_id=current_user.id,
+                batch_size=resources.embedding_batch_size,
+                batch_delay_seconds=resources.batch_delay_seconds,
+                retry_policy=resources.retry_policy,
+                indexing_lease_seconds=resources.indexing_lease_seconds,
             )
     except SummaryConcurrencyLimitError:
         raise HTTPException(
@@ -577,7 +590,10 @@ def index_owned_document(
     except DocumentIndexingFailedError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dịch vụ lập chỉ mục RAG tạm thời không khả dụng.",
+            detail=(
+                "Nội dung tài liệu đã được giữ lại, nhưng AI chưa lập chỉ mục "
+                "xong. Bạn có thể thử lại sau mà không cần tải lên lại."
+            ),
         ) from None
     except DocumentIndexingInfrastructureError:
         raise HTTPException(

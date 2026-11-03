@@ -461,3 +461,49 @@ def test_importing_module_never_creates_a_gemini_client(
     importlib.reload(embedding_module)
 
     assert calls == 0
+
+
+def test_fastembed_provider_embed_documents_and_query():
+    from app.services.rag.embedding_service import FastEmbedProvider
+
+    provider = FastEmbedProvider()
+    docs = ["Đây là đoạn văn bản thứ nhất", "Đây là đoạn văn bản thứ hai"]
+    vectors = provider.embed_documents(docs)
+    assert len(vectors) == 2
+    assert len(vectors[0]) == 384
+    assert len(vectors[1]) == 384
+    assert isinstance(vectors[0][0], float)
+
+    vectors_alias = provider.embed_texts(docs)
+    assert len(vectors_alias) == 2
+    assert len(vectors_alias[0]) == 384
+
+    q_vector = provider.embed_query("Câu hỏi kiểm tra")
+    assert len(q_vector) == 384
+    assert isinstance(q_vector[0], float)
+
+    provider.close()
+
+
+def test_fastembed_provider_validates_input():
+    from app.services.rag.embedding_service import (
+        FastEmbedProvider,
+        InvalidEmbeddingInputError,
+    )
+
+    provider = FastEmbedProvider()
+
+    with pytest.raises(InvalidEmbeddingInputError):
+        provider.embed_documents([])
+
+    with pytest.raises(InvalidEmbeddingInputError):
+        provider.embed_documents([""])
+
+    with pytest.raises(InvalidEmbeddingInputError):
+        provider.embed_documents(["   "])
+
+    with pytest.raises(InvalidEmbeddingInputError):
+        provider.embed_query("")
+
+    with pytest.raises(InvalidEmbeddingInputError):
+        provider.embed_query("   ")
